@@ -1,4 +1,5 @@
--- Generated with Readable GUI Dumper V11
+-- Console Module: https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Console.lua
+-- IDE Module: https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDE.lua
 
 local MainParent = game.CoreGui
 
@@ -1016,6 +1017,6 @@ repeat task.wait() until DoneInitializing
 
 
 
-loadstring(game:HttpGetAsync(""))(MainFrame, Console_2)
+loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDE.lua"))(MainFrame, Console_2)
 
-loadstring(game:HttpGetAsync(""))(Console_2)
+loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Console.lua"))(Console_2)
