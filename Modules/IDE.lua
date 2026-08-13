@@ -773,11 +773,11 @@ return function(MainFrame, Console_2)
 		-- Do NOT create an AbsoluteSize connection here.
 		--
 		-- The original script created a new connection every time
-		-- updateEditorLayout() ran.
+		-- updateEditorLayout() ran
 		--
-		-- Also, editorWidth/editorHeight were never defined.
+		-- Also editorWidth/editorHeight were never defined.
 		--
-		-- We get the dimensions directly from EditorScroll.
+		-- We get the shit directly from EditorScroll.
 
 		local absoluteSize = EditorScroll.AbsoluteSize
 
