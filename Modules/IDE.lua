@@ -70,23 +70,31 @@ return function(MainFrame, Console_2)
 		Autocomplete = true,
 		BracketAutoClose = true,
 	}
-	
+
 	-- ============================================================
 	-- OVERLAPPING
 	-- ============================================================
-	
-	MainFrame.MouseButton1Down:Connect(function()
+
+	local function IDEINFOCUS()
 		if Console_2.ZIndex == 5 then
 			Console_2.ZIndex = 4
 		end
 		MainFrame.ZIndex = 5
-	end)
-	
-	Console_2.MouseButton1Down:Connect(function()
+	end
+
+	local function CONSOLEINFOCUS()
 		if MainFrame.ZIndex == 5 then
 			MainFrame.ZIndex = 4
 		end
 		Console_2.ZIndex = 5
+	end
+
+	MainFrame.MouseButton1Down:Connect(function()
+		IDEINFOCUS()
+	end)
+
+	Console_2.MouseButton1Down:Connect(function()
+		CONSOLEINFOCUS()
 	end)
 
 	-- ============================================================
@@ -107,10 +115,13 @@ return function(MainFrame, Console_2)
 
 		--EditorScroll.CanvasSize = UDim2.fromOffset(0, 0)
 
-		EditorScroll.ScrollBarThickness = 6
-		EditorScroll.ScrollBarImageTransparency = 0.35
+		EditorScroll.ScrollBarThickness = 8
+		EditorScroll.ScrollBarImageTransparency = 0.15
 
-		EditorScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+		-- Allow both vertical and horizontal scrolling.
+		-- Roblox automatically shows the needed scrollbar when CanvasSize
+		-- exceeds the visible editor area.
+		EditorScroll.ScrollingDirection = Enum.ScrollingDirection.XY
 		EditorScroll.AutomaticCanvasSize = Enum.AutomaticSize.None
 
 		EditorScroll.ClipsDescendants = true
@@ -118,6 +129,12 @@ return function(MainFrame, Console_2)
 
 		EditorScroll.Parent = CodingHolder
 	end
+
+	-- Enforce scrolling settings even when EditorScroll already existed.
+	EditorScroll.ScrollBarThickness = 8
+	EditorScroll.ScrollBarImageTransparency = 0.15
+	EditorScroll.ScrollingDirection = Enum.ScrollingDirection.XY
+	EditorScroll.AutomaticCanvasSize = Enum.AutomaticSize.None
 
 	local EditorContent = EditorScroll:FindFirstChild("EditorContent")
 
@@ -182,7 +199,7 @@ return function(MainFrame, Console_2)
 
 		input.Parent = EditorContent
 	end
-	
+
 	local hlBar = EditorContent:FindFirstChild("HighlightBar")
 
 	if not hlBar then
@@ -238,21 +255,56 @@ return function(MainFrame, Console_2)
 	display.TextWrapped = false
 	display.Font = Enum.Font.Code
 
+	-- Display itself is now just the container/reference.
+	display.Text = ""
+	display.ClipsDescendants = false
+
 	hlBar.Visible = false
+
+	-- ============================================================
+	-- MOUSE CAPTURE LAYER
+	-- ============================================================
+	--
+	-- The real TextBox must NOT receive mouse clicks directly.
+	-- Roblox's native hit-testing becomes unreliable on very large
+	-- multiline TextBoxes and can leave behind a bad internal vertical
+	-- navigation position. We capture clicks here and place the caret
+	-- ourselves.
+	-- ============================================================
+
+	local mouseCapture =
+		EditorContent:FindFirstChild("MouseCapture")
+
+	if not mouseCapture then
+		mouseCapture = Instance.new("TextButton")
+		mouseCapture.Name = "MouseCapture"
+		mouseCapture.Text = ""
+		mouseCapture.AutoButtonColor = false
+		mouseCapture.BackgroundTransparency = 1
+		mouseCapture.BorderSizePixel = 0
+		mouseCapture.Active = true
+		mouseCapture.Selectable = false
+		mouseCapture.ZIndex = 7
+		mouseCapture.Parent = EditorContent
+	end
+
+	mouseCapture.Text = ""
+	mouseCapture.AutoButtonColor = false
+	mouseCapture.BackgroundTransparency = 1
+	mouseCapture.BorderSizePixel = 0
+	mouseCapture.Active = true
+	mouseCapture.Selectable = false
+	mouseCapture.ZIndex = 7
 
 	-- ============================================================
 	-- GUTTER LAYOUT
 	-- ============================================================
 
+	-- Gutter is manually positioned/virtualized. A UIListLayout would
+	-- collapse virtualized line buttons toward the top of the gutter.
 	local gutterLayout = gutter:FindFirstChildOfClass("UIListLayout")
-
-	if not gutterLayout then
-		gutterLayout = Instance.new("UIListLayout")
-
-		gutterLayout.SortOrder = Enum.SortOrder.LayoutOrder
-		gutterLayout.Padding = UDim.new(0, 0)
-
-		gutterLayout.Parent = gutter
+	if gutterLayout then
+		gutterLayout:Destroy()
 	end
 
 	-- ============================================================
@@ -269,7 +321,7 @@ return function(MainFrame, Console_2)
 		func = "rgb(110, 173, 255)",
 		rblx = "rgb(198, 174, 57)"
 	}
-	
+
 	--Color3.fromRGB(198, 174, 57)
 	-- ============================================================
 	-- KEYWORDS
@@ -298,7 +350,7 @@ return function(MainFrame, Console_2)
 		"nil",
 		"in",
 	}
-	
+
 	local FUNCTIONS = {
 		"print",
 		"warn",
@@ -317,7 +369,7 @@ return function(MainFrame, Console_2)
 		"typeof",
 		"select",
 	}
-	
+
 	local ROBLOXKEYWORDS = {
 		"game",
 		"GetService",
@@ -337,13 +389,13 @@ return function(MainFrame, Console_2)
 	for _, keyword in ipairs(KEYWORDS) do
 		keywordSet[keyword] = true
 	end
-	
+
 	local keywordfunctionsSet = {}
 
 	for _, keyword in ipairs(FUNCTIONS) do
 		keywordfunctionsSet[keyword] = true
 	end
-	
+
 	local ROBLOXKEYWORDSSet = {}
 
 	for _, keyword in ipairs(ROBLOXKEYWORDS) do
@@ -401,7 +453,7 @@ return function(MainFrame, Console_2)
 		"ServerScriptService",
 		"StarterGui",
 		"StarterPlayer",
-		
+
 		-- Functions
 		"print",
 		"warn",
@@ -449,6 +501,7 @@ return function(MainFrame, Console_2)
 	local selectedCompletion = 1
 
 	local highlightedLine = 1
+	local cursorNeedsUpdate = false
 
 	local MAX_COMPLETIONS = 8
 	local COMPLETION_HEIGHT = 22
@@ -467,20 +520,39 @@ return function(MainFrame, Console_2)
 		return text
 	end
 
+	local cachedMeasuredLineHeight = nil
+
 	local function getLineHeight()
-		local lineHeight = input.LineHeight
-
-		if typeof(lineHeight) ~= "number" then
-			lineHeight = 1
+		if cachedMeasuredLineHeight then
+			return cachedMeasuredLineHeight
 		end
 
-		local textSize = input.TextSize
+		local bounds =
+			TextService:GetTextSize(
+				"Ay",
+				input.TextSize,
+				input.Font,
+				Vector2.new(
+					10000,
+					10000
+				)
+			)
 
-		if typeof(textSize) ~= "number" then
-			textSize = 14
+		local lineHeightMultiplier =
+			input.LineHeight
+
+		if typeof(lineHeightMultiplier) ~= "number" then
+			lineHeightMultiplier = 1
 		end
 
-		return math.max(1, textSize * lineHeight)
+		cachedMeasuredLineHeight =
+			math.max(
+				1,
+				bounds.Y
+				* lineHeightMultiplier
+			)
+
+		return cachedMeasuredLineHeight
 	end
 
 	local function getLines(text)
@@ -567,7 +639,7 @@ return function(MainFrame, Console_2)
 
 		return before:match("([^\n]*)$") or ""
 	end
-	
+
 
 
 	-- ============================================================
@@ -604,33 +676,38 @@ return function(MainFrame, Console_2)
 		return nil
 	end
 
-	local function getBlockEnd(lines, startLine)
-		if not lines[startLine] then
+	-- ============================================================
+	-- FAST FOLDING CACHE
+	-- ============================================================
+
+	local foldEndByStart = {}
+	local hiddenLines = {}
+	local visibleLineIndex = {}
+	local visibleToSourceLine = {}
+	local lineStartPositions = {}
+	local cachedLines = {""}
+
+	local foldingCacheText = nil
+
+	local function getBlockType(line)
+		line = trim(stripComment(line))
+
+		if line == "" then
 			return nil
 		end
 
-		if not isBlockStart(lines[startLine]) then
-			return nil
+		if line == "repeat" then
+			return "repeat"
 		end
 
-		local depth = 0
-
-		for i = startLine, #lines do
-			local line = trim(stripComment(lines[i]))
-
-			if isBlockStart(line) then
-				depth += 1
-			end
-
-			local ending = isBlockEnd(line)
-
-			if ending then
-				depth -= 1
-
-				if depth == 0 then
-					return i
-				end
-			end
+		if line:match("^if%s+.+%s+then%s*$")
+			or line:match("^for%s+.+%s+do%s*$")
+			or line:match("^while%s+.+%s+do%s*$")
+			or line:match("^function%s+")
+			or line:match("^local%s+function%s+")
+			or line == "do"
+		then
+			return "normal"
 		end
 
 		return nil
@@ -644,25 +721,110 @@ return function(MainFrame, Console_2)
 			.. tostring(lines[startLine] or "")
 	end
 
-	local function getFoldedRanges()
-		local lines = getLines(input.Text)
-		local ranges = {}
+	local function rebuildFoldingCache()
+		local text = input.Text
 
-		for startLine = 1, #lines do
-			if isBlockStart(lines[startLine]) then
-				local endLine = getBlockEnd(lines, startLine)
+		if foldingCacheText == text then
+			return
+		end
 
-				if endLine and endLine > startLine then
-					local key = getFoldKey(startLine, endLine, lines)
+		foldingCacheText = text
 
-					if foldedBlocks[key] then
-						table.insert(ranges, {
-							startLine = startLine,
-							endLine = endLine,
-							key = key,
-						})
+		table.clear(foldEndByStart)
+		table.clear(hiddenLines)
+		table.clear(visibleLineIndex)
+		table.clear(visibleToSourceLine)
+		table.clear(lineStartPositions)
+
+		cachedLines = getLines(text)
+
+		local stack = {}
+		local characterPosition = 1
+
+		for lineNumber, line in ipairs(cachedLines) do
+			lineStartPositions[lineNumber] = characterPosition
+			characterPosition += #line + 1
+		end
+
+		-- Find every fold pair in one pass.
+		for lineNumber, rawLine in ipairs(cachedLines) do
+			local line = trim(stripComment(rawLine))
+			local blockType = getBlockType(line)
+
+			if blockType then
+				table.insert(stack, {
+					line = lineNumber,
+					type = blockType,
+				})
+			end
+
+			if line == "end" then
+				for i = #stack, 1, -1 do
+					if stack[i].type ~= "repeat" then
+						local block = table.remove(stack, i)
+						foldEndByStart[block.line] = lineNumber
+						break
 					end
 				end
+			elseif line:match("^until%s+") then
+				for i = #stack, 1, -1 do
+					if stack[i].type == "repeat" then
+						local block = table.remove(stack, i)
+						foldEndByStart[block.line] = lineNumber
+						break
+					end
+				end
+			end
+		end
+
+		-- Build the hidden-line table once.
+		if Features.CodeFolding then
+			for startLine, endLine in pairs(foldEndByStart) do
+				local key = getFoldKey(startLine, endLine, cachedLines)
+
+				if foldedBlocks[key] then
+					for lineNumber = startLine + 1, endLine do
+						hiddenLines[lineNumber] = true
+					end
+				end
+			end
+		end
+
+		-- Source <-> rendered visible-line lookup.
+		local visible = 0
+		for lineNumber = 1, #cachedLines do
+			if not hiddenLines[lineNumber] then
+				visible += 1
+				visibleToSourceLine[visible] = lineNumber
+			end
+
+			visibleLineIndex[lineNumber] = visible
+		end
+	end
+
+	local function invalidateFoldingCache()
+		foldingCacheText = nil
+	end
+
+	local function getBlockEnd(_lines, startLine)
+		rebuildFoldingCache()
+		return foldEndByStart[startLine]
+	end
+
+	local function getFoldedRanges()
+		rebuildFoldingCache()
+
+		local ranges = {}
+
+		for startLine, endLine in pairs(foldEndByStart) do
+			local key = getFoldKey(startLine, endLine, cachedLines)
+
+			if foldedBlocks[key] then
+				table.insert(ranges, {
+					startLine = startLine,
+					endLine = endLine,
+					key = key,
+				})
 			end
 		end
 
@@ -674,61 +836,97 @@ return function(MainFrame, Console_2)
 			return false
 		end
 
-		for _, range in ipairs(getFoldedRanges()) do
-			if lineNumber > range.startLine
-				and lineNumber <= range.endLine
-			then
-				return true
-			end
-		end
-
-		return false
+		rebuildFoldingCache()
+		return hiddenLines[lineNumber] == true
 	end
 
 	local function isLineFolded(lineNumber)
-		local lines = getLines(input.Text)
+		rebuildFoldingCache()
 
-		local endLine = getBlockEnd(lines, lineNumber)
-
-		if not endLine or endLine <= lineNumber then
+		local endLine = foldEndByStart[lineNumber]
+		if not endLine then
 			return false
 		end
 
-		local key = getFoldKey(lineNumber, endLine, lines)
-
+		local key = getFoldKey(lineNumber, endLine, cachedLines)
 		return foldedBlocks[key] == true
 	end
-	
+
+	local function getCursorSourceLine(cursorPosition)
+		rebuildFoldingCache()
+
+		local low = 1
+		local high = #lineStartPositions
+		local lineNumber = 1
+
+		while low <= high do
+			local mid = math.floor((low + high) / 2)
+
+			if lineStartPositions[mid] <= cursorPosition then
+				lineNumber = mid
+				low = mid + 1
+			else
+				high = mid - 1
+			end
+		end
+
+		return lineNumber
+	end
+
+	local function getViewportVisibleRange(bufferLines)
+		rebuildFoldingCache()
+
+		bufferLines = bufferLines or 12
+
+		local lineHeight = getLineHeight()
+		local canvasY = EditorScroll.CanvasPosition.Y
+		local viewportHeight = EditorScroll.AbsoluteSize.Y
+
+		local firstVisible = math.max(
+			1,
+			math.floor(canvasY / lineHeight) + 1 - bufferLines
+		)
+
+		local lastVisible = math.min(
+			#visibleToSourceLine,
+			math.ceil((canvasY + viewportHeight) / lineHeight)
+				+ bufferLines
+		)
+
+		return firstVisible, math.max(firstVisible, lastVisible)
+	end
+
 	-- ============================================================
 	-- KEEP INPUT AND DISPLAY PERFECTLY ALIGNED
 	-- ============================================================
 
 	local function syncInputAndDisplay()
-		-- Same exact geometry
-		input.Position = display.Position
-		input.Size = display.Size
+		display.Position = input.Position
+		display.Size = input.Size
 
-		-- Same exact text rendering
-		input.Font = display.Font
-		input.TextSize = display.TextSize
-		input.LineHeight = display.LineHeight
+		display.Font = input.Font
+		display.TextSize = input.TextSize
+		display.LineHeight = input.LineHeight
 
-		input.TextXAlignment = display.TextXAlignment
-		input.TextYAlignment = display.TextYAlignment
+		display.TextXAlignment =
+			input.TextXAlignment
 
-		input.TextWrapped = display.TextWrapped
+		display.TextYAlignment =
+			input.TextYAlignment
 
-		-- Input remains invisible
+		display.TextWrapped =
+			input.TextWrapped
+
 		input.TextTransparency = 1
 		input.BackgroundTransparency = 1
 	end
 
 	syncInputAndDisplay()
-	
+
 	-- ============================================================
 	-- CUSTOM EDITOR CURSOR
 	-- ============================================================
-	
+
 	local CURSOR_OFFSET_X = 4
 	local CURSOR_OFFSET_Y = 0
 
@@ -736,30 +934,16 @@ return function(MainFrame, Console_2)
 
 	if not editorCursor then
 		editorCursor = Instance.new("Frame")
-
 		editorCursor.Name = "EditorCursor"
-
-		editorCursor.BackgroundColor3 =
-			Color3.fromRGB(220, 220, 220)
-
+		editorCursor.BackgroundColor3 = Color3.fromRGB(220, 220, 220)
 		editorCursor.BorderSizePixel = 0
-
-		editorCursor.Size = UDim2.fromOffset(
-			4,
-			getLineHeight()
-		)
-
 		editorCursor.Visible = false
-
-		-- Above the text.
 		editorCursor.ZIndex = 6
-
 		editorCursor.Parent = EditorContent
 	end
 
 	local cursorBlinkTimer = 0
 	local cursorBlinkVisible = true
-
 	local CURSOR_BLINK_TIME = 0.55
 
 	local function getCursorDisplayPosition()
@@ -768,83 +952,39 @@ return function(MainFrame, Console_2)
 		end
 
 		local cursorPosition = input.CursorPosition
-
 		if cursorPosition < 1 then
 			return nil
 		end
 
-		local text = input.Text
+		rebuildFoldingCache()
 
-		-- Find current line.
-		local lineNumber = 1
-
-		for i = 1, cursorPosition - 1 do
-			if text:sub(i, i) == "\n" then
-				lineNumber += 1
-			end
-		end
-
-		-- Start of current line.
-		local lineStart = getLineStart(
-			text,
-			lineNumber
-		)
-
-		-- Text before cursor on this line.
+		local lineNumber = getCursorSourceLine(cursorPosition)
+		local lineStart = lineStartPositions[lineNumber] or 1
 		local textBeforeCursor = ""
 
 		if cursorPosition > lineStart then
-			textBeforeCursor = text:sub(
+			textBeforeCursor = input.Text:sub(
 				lineStart,
 				cursorPosition - 1
 			)
 		end
 
-		-- IMPORTANT:
-		-- Use the exact same font/text size as Display.
 		local textWidth = TextService:GetTextSize(
 			textBeforeCursor,
-			display.TextSize,
-			display.Font,
-			Vector2.new(
-				100000,
-				getLineHeight()
-			)
+			input.TextSize,
+			input.Font,
+			Vector2.new(100000, getLineHeight())
 		).X
 
-		-- Find which rendered line this is.
-		local visibleLine = 0
-
-		for i = 1, lineNumber do
-			if not isLineHidden(i) then
-				visibleLine += 1
-			end
-		end
-
+		local visibleLine = visibleLineIndex[lineNumber] or lineNumber
 		local lineHeight = getLineHeight()
 
-		-- ========================================================
-		-- USE DISPLAY'S REAL POSITION
-		-- ========================================================
-
-		local displayAbsoluteX =
-			display.AbsolutePosition.X
-
-		local displayAbsoluteY =
-			display.AbsolutePosition.Y
-
-		local contentAbsoluteX =
-			EditorContent.AbsolutePosition.X
-
-		local contentAbsoluteY =
-			EditorContent.AbsolutePosition.Y
-
 		local x =
-			(displayAbsoluteX - contentAbsoluteX)
+			(display.AbsolutePosition.X - EditorContent.AbsolutePosition.X)
 			+ textWidth
 
 		local y =
-			(displayAbsoluteY - contentAbsoluteY)
+			(display.AbsolutePosition.Y - EditorContent.AbsolutePosition.Y)
 			+ ((visibleLine - 1) * lineHeight)
 
 		return x, y, lineHeight
@@ -856,73 +996,158 @@ return function(MainFrame, Console_2)
 			return
 		end
 
-		-- Wait until Display has finished rebuilding.
 		if cursorNeedsUpdate then
 			return
 		end
 
-		local x, y, lineHeight =
-			getCursorDisplayPosition()
-
+		local x, y, lineHeight = getCursorDisplayPosition()
 		if not x then
 			editorCursor.Visible = false
 			return
 		end
 
 		editorCursor.Visible = true
-
-		editorCursor.Size = UDim2.fromOffset(
-			2,
-			lineHeight
+		editorCursor.Size = UDim2.fromOffset(2, lineHeight)
+		editorCursor.Position = UDim2.fromOffset(
+			math.round(x + CURSOR_OFFSET_X),
+			math.round(y + CURSOR_OFFSET_Y)
 		)
+	end
 
-		editorCursor.Position =
-			UDim2.fromOffset(
-				math.round(x + CURSOR_OFFSET_X),
-				math.round(y + CURSOR_OFFSET_Y)
+	-- ============================================================
+	-- KEEP THE CARET INSIDE THE SCROLLING VIEWPORT
+	-- ============================================================
+
+	local AUTO_SCROLL_PADDING_X = 36
+	local AUTO_SCROLL_PADDING_Y = 4
+
+	local function ensureCursorVisible()
+		if not input:IsFocused() then
+			return
+		end
+
+		local cursorX, cursorY, lineHeight =
+			getCursorDisplayPosition()
+
+		if not cursorX then
+			return
+		end
+
+		local canvas = EditorScroll.CanvasPosition
+		local viewportSize = EditorScroll.AbsoluteSize
+		local canvasSize = EditorScroll.CanvasSize
+
+		-- Reserve room for a scrollbar on the opposite axis when needed.
+		local verticalOverflow =
+			canvasSize.Y.Offset > viewportSize.Y
+
+		local horizontalOverflow =
+			canvasSize.X.Offset > viewportSize.X
+
+		local viewportWidth =
+			math.max(
+				1,
+				viewportSize.X
+				- (verticalOverflow
+					and EditorScroll.ScrollBarThickness
+					or 0)
 			)
+
+		local viewportHeight =
+			math.max(
+				1,
+				viewportSize.Y
+				- (horizontalOverflow
+					and EditorScroll.ScrollBarThickness
+					or 0)
+			)
+
+		local targetX = canvas.X
+		local targetY = canvas.Y
+
+		-- Horizontal caret visibility.
+		if cursorX < canvas.X + AUTO_SCROLL_PADDING_X then
+			targetX =
+				cursorX - AUTO_SCROLL_PADDING_X
+		elseif cursorX + 2
+			> canvas.X
+			+ viewportWidth
+			- AUTO_SCROLL_PADDING_X
+		then
+			targetX =
+				cursorX
+				+ 2
+			- viewportWidth
+				+ AUTO_SCROLL_PADDING_X
+		end
+
+		-- Vertical caret visibility.
+		if cursorY < canvas.Y + AUTO_SCROLL_PADDING_Y then
+			targetY =
+				cursorY - AUTO_SCROLL_PADDING_Y
+		elseif cursorY + lineHeight
+			> canvas.Y
+			+ viewportHeight
+			- AUTO_SCROLL_PADDING_Y
+		then
+			targetY =
+				cursorY
+				+ lineHeight
+			- viewportHeight
+				+ AUTO_SCROLL_PADDING_Y
+		end
+
+		local maxX =
+			math.max(
+				0,
+				canvasSize.X.Offset - viewportWidth
+			)
+
+		local maxY =
+			math.max(
+				0,
+				canvasSize.Y.Offset - viewportHeight
+			)
+
+		targetX = math.clamp(targetX, 0, maxX)
+		targetY = math.clamp(targetY, 0, maxY)
+
+		if math.abs(targetX - canvas.X) > 0.5
+			or math.abs(targetY - canvas.Y) > 0.5
+		then
+			EditorScroll.CanvasPosition =
+				Vector2.new(
+					math.round(targetX),
+					math.round(targetY)
+				)
+		end
 	end
 
 	local function resetCursorBlink()
 		cursorBlinkTimer = 0
 		cursorBlinkVisible = true
-
 		editorCursor.BackgroundTransparency = 0
-
 		updateEditorCursor()
 	end
 
-	-- ============================================================
-	-- CURSOR RENDER
-	-- ============================================================
-	
-	RunService.RenderStepped:Connect(
-		function(deltaTime)
-
-			if not input:IsFocused() then
-				editorCursor.Visible = false
-				return
-			end
-
-			-- Only update position when the editor is stable.
-			if not cursorNeedsUpdate then
-				updateEditorCursor()
-			end
-
-			cursorBlinkTimer += deltaTime
-
-			if cursorBlinkTimer >= CURSOR_BLINK_TIME then
-				cursorBlinkTimer = 0
-
-				cursorBlinkVisible =
-					not cursorBlinkVisible
-
-				editorCursor.BackgroundTransparency =
-					cursorBlinkVisible and 0 or 1
-			end
+	-- Only blink every frame. Do NOT recalculate the cursor position every
+	-- RenderStepped; that was expensive for large scripts.
+	RunService.RenderStepped:Connect(function(deltaTime)
+		if not input:IsFocused() then
+			editorCursor.Visible = false
+			return
 		end
-	)
-	
+
+		cursorBlinkTimer += deltaTime
+
+		if cursorBlinkTimer >= CURSOR_BLINK_TIME then
+			cursorBlinkTimer = 0
+			cursorBlinkVisible = not cursorBlinkVisible
+			editorCursor.BackgroundTransparency =
+				cursorBlinkVisible and 0 or 1
+		end
+	end)
+
 	-- ============================================================
 	-- SYNTAX HIGHLIGHTING
 	-- ============================================================
@@ -1073,113 +1298,224 @@ return function(MainFrame, Console_2)
 	local clearAutocomplete
 
 	-- ============================================================
+	-- HORIZONTAL CONTENT WIDTH
+	-- ============================================================
+
+	local HORIZONTAL_END_PADDING = 60
+	local cachedHorizontalText = nil
+	local cachedHorizontalTextSize = nil
+	local cachedHorizontalFont = nil
+	local cachedHorizontalWidth = 0
+
+	local function invalidateHorizontalWidthCache()
+		cachedHorizontalText = nil
+	end
+
+	local function getRequiredCodeWidth()
+		rebuildFoldingCache()
+
+		if cachedHorizontalText == input.Text
+			and cachedHorizontalTextSize == input.TextSize
+			and cachedHorizontalFont == input.Font
+		then
+			return cachedHorizontalWidth
+		end
+
+		-- Font.Code is monospaced, so finding the line with the largest
+		-- character count lets us perform only ONE TextService measurement.
+		local longestLine = ""
+		local longestVisualLength = -1
+
+		for _, line in ipairs(cachedLines) do
+			local expanded = line:gsub("\t", "    ")
+			local visualLength = #expanded
+
+			if visualLength > longestVisualLength then
+				longestVisualLength = visualLength
+				longestLine = expanded
+			end
+		end
+
+		local measuredWidth = 0
+
+		if longestLine ~= "" then
+			measuredWidth = TextService:GetTextSize(
+				longestLine,
+				input.TextSize,
+				input.Font,
+				Vector2.new(1000000, getLineHeight())
+			).X
+		end
+
+		cachedHorizontalText = input.Text
+		cachedHorizontalTextSize = input.TextSize
+		cachedHorizontalFont = input.Font
+		cachedHorizontalWidth =
+			math.ceil(measuredWidth + HORIZONTAL_END_PADDING)
+
+		return cachedHorizontalWidth
+	end
+
+	-- ============================================================
 	-- EDITOR LAYOUT
 	-- ============================================================
 
 	updateEditorLayout = function()
-		-- IMPORTANT:
-		-- Do NOT create an AbsoluteSize connection here.
-		--
-		-- The original script created a new connection every time
-		-- updateEditorLayout() ran.
-		--
-		-- Also, editorWidth/editorHeight were never defined.
-		--
-		-- We get the dimensions directly from EditorScroll.
-
 		local absoluteSize = EditorScroll.AbsoluteSize
+		local editorWidth = math.max(1, absoluteSize.X)
+		local editorHeight = math.max(1, absoluteSize.Y)
 
-		local editorWidth = math.max(
-			1,
-			absoluteSize.X
-		)
+		rebuildFoldingCache()
 
-		local editorHeight = math.max(
-			1,
-			absoluteSize.Y
-		)
-
-		local lines = getLines(input.Text)
 		local lineHeight = getLineHeight()
 
-		local contentHeight = math.max(
+		local sourceHeight = math.max(
 			editorHeight,
-			#lines * lineHeight + 10
+			#cachedLines * lineHeight + 10
 		)
 
-		EditorContent.Size = UDim2.fromOffset(
+		-- Width of the visible code viewport, excluding the gutter.
+		local visibleCodeWidth = math.max(editorWidth - 55, 1)
+
+		-- Width required by the longest source line.
+		local requiredCodeWidth = getRequiredCodeWidth()
+
+		-- The code area expands only when text actually exceeds the viewport.
+		local codeWidth = math.max(
+			visibleCodeWidth,
+			requiredCodeWidth
+		)
+
+		-- Total canvas width includes the 55px gutter.
+		local contentWidth = math.max(
 			editorWidth,
-			contentHeight
+			55 + codeWidth
+		)
+
+		EditorContent.Position = UDim2.fromOffset(0, 0)
+		EditorContent.Size = UDim2.fromOffset(
+			contentWidth,
+			sourceHeight
 		)
 
 		EditorScroll.CanvasSize = UDim2.fromOffset(
-			editorWidth,
-			contentHeight
+			contentWidth,
+			sourceHeight
 		)
 
-		local codeWidth = math.max(
-			editorWidth - 55,
-			1
-		)
+		gutter.Position = UDim2.fromOffset(0, 0)
+		gutter.Size = UDim2.fromOffset(55, sourceHeight)
 
-		--input.Position = UDim2.fromOffset(55, 0)
+		input.Position = UDim2.fromOffset(55, 0)
+		input.Size = UDim2.fromOffset(codeWidth, sourceHeight)
 
-		--input.Size = UDim2.fromOffset(
-		--	codeWidth,
-		--	contentHeight
-		--)
+		mouseCapture.Position = input.Position
+		mouseCapture.Size = input.Size
 
-		--display.Position = UDim2.fromOffset(55, 0)
+		input.TextXAlignment = Enum.TextXAlignment.Left
+		input.TextYAlignment = Enum.TextYAlignment.Top
+		input.TextWrapped = false
 
-		--display.Size = UDim2.fromOffset(
-		--	codeWidth,
-		--	contentHeight
-		--)
+		display.Position = input.Position
+		display.Size = input.Size
+		display.Font = input.Font
+		display.TextSize = input.TextSize
+		display.LineHeight = input.LineHeight
+		display.TextXAlignment = input.TextXAlignment
+		display.TextYAlignment = input.TextYAlignment
+		display.TextWrapped = false
 
-		--gutter.Position = UDim2.fromOffset(0, 0)
-
-		--gutter.Size = UDim2.fromOffset(
-		--	55,
-		--	contentHeight
-		--)
-
-		hlBar.Size = UDim2.fromOffset(
-			codeWidth,
-			lineHeight
-		)
+		hlBar.Size = UDim2.fromOffset(codeWidth, lineHeight)
 
 		for _, bar in ipairs(errorBars) do
 			if bar and bar.Parent then
-				bar.Size = UDim2.fromOffset(
-					codeWidth,
-					2
-				)
+				bar.Size = UDim2.fromOffset(codeWidth, 2)
 			end
 		end
 	end
 
 	-- ============================================================
-	-- DISPLAY
+	-- CHUNKED DISPLAY
 	-- ============================================================
 
-	updateDisplay = function()
-		local lines = getLines(input.Text)
-		local visibleLines = {}
+	-- Virtualized display: only syntax-highlight the lines close to the
+	-- viewport. The invisible TextBox still owns the complete source.
+	local DISPLAY_BUFFER_LINES = 20
 
-		for lineNumber, line in ipairs(lines) do
-			if not isLineHidden(lineNumber) then
-				table.insert(visibleLines, line)
+	local viewportDisplay = display:FindFirstChild("ViewportDisplay")
+
+	if not viewportDisplay then
+		viewportDisplay = Instance.new("TextLabel")
+		viewportDisplay.Name = "ViewportDisplay"
+		viewportDisplay.BackgroundTransparency = 1
+		viewportDisplay.BorderSizePixel = 0
+		viewportDisplay.RichText = true
+		viewportDisplay.TextXAlignment = Enum.TextXAlignment.Left
+		viewportDisplay.TextYAlignment = Enum.TextYAlignment.Top
+		viewportDisplay.TextWrapped = false
+		viewportDisplay.ZIndex = display.ZIndex
+		viewportDisplay.Parent = display
+	end
+
+	-- Clean up old chunk objects from the previous implementation.
+	for _, child in ipairs(display:GetChildren()) do
+		if child.Name == "DisplayChunk" then
+			child:Destroy()
+		end
+	end
+
+	updateDisplay = function()
+		rebuildFoldingCache()
+
+		display.Text = ""
+
+		viewportDisplay.Font = input.Font
+		viewportDisplay.TextSize = input.TextSize
+		viewportDisplay.LineHeight = input.LineHeight
+		viewportDisplay.TextColor3 = display.TextColor3
+		viewportDisplay.TextTransparency = display.TextTransparency
+
+		local firstVisible, lastVisible =
+			getViewportVisibleRange(DISPLAY_BUFFER_LINES)
+
+		local sourceLines = {}
+		local actualFirstVisible = nil
+		local actualLastVisible = nil
+
+		for visibleLine = firstVisible, lastVisible do
+			local sourceLine = visibleToSourceLine[visibleLine]
+
+			if sourceLine then
+				actualFirstVisible = actualFirstVisible or visibleLine
+				actualLastVisible = visibleLine
+				table.insert(sourceLines, cachedLines[sourceLine] or "")
 			end
 		end
 
-		display.Text = highlight(
-			table.concat(
-				visibleLines,
-				"\n"
+		if not actualFirstVisible then
+			actualFirstVisible = 1
+			actualLastVisible = 1
+			sourceLines = {""}
+		end
+
+		local lineHeight = getLineHeight()
+
+		viewportDisplay.Position = UDim2.fromOffset(
+			0,
+			(actualFirstVisible - 1) * lineHeight
+		)
+
+		viewportDisplay.Size = UDim2.new(
+			1,
+			0,
+			0,
+			math.max(
+				(actualLastVisible - actualFirstVisible + 1) * lineHeight,
+				lineHeight
 			)
 		)
 
-		updateEditorLayout()
+		viewportDisplay.Text = highlight(table.concat(sourceLines, "\n"))
 	end
 
 	-- ============================================================
@@ -1443,11 +1779,9 @@ return function(MainFrame, Console_2)
 	local function clearErrorBars()
 		for _, bar in ipairs(errorBars) do
 			if bar and bar.Parent then
-				bar:Destroy()
+				bar.Visible = false
 			end
 		end
-
-		table.clear(errorBars)
 	end
 
 	updateErrorUnderlines = function()
@@ -1457,45 +1791,78 @@ return function(MainFrame, Console_2)
 			return
 		end
 
-		local codeWidth = math.max(
-			EditorContent.AbsoluteSize.X - 55,
-			1
-		)
+		rebuildFoldingCache()
 
-		local lineHeight = getLineHeight()
+		local firstVisible, lastVisible =
+			getViewportVisibleRange(5)
+
+		local codeWidth =
+			math.max(
+				EditorContent.AbsoluteSize.X - 55,
+				1
+			)
+
+		local lineHeight =
+			getLineHeight()
+
+		local used = 0
 
 		for _, err in ipairs(currentErrors) do
-			local bar = Instance.new("Frame")
+			local visibleLine =
+				visibleLineIndex[err.line]
 
-			bar.Name = "ErrorUnderline"
-			bar.BorderSizePixel = 0
+			if visibleLine
+				and not hiddenLines[err.line]
+				and visibleLine >= firstVisible
+				and visibleLine <= lastVisible
+			then
+				used += 1
 
-			bar.BackgroundColor3 = Color3.fromRGB(
-				244,
-				71,
-				71
-			)
+				local bar =
+					errorBars[used]
 
-			bar.Size = UDim2.fromOffset(
-				codeWidth,
-				2
-			)
+				if not bar then
+					bar = Instance.new("Frame")
 
-			bar.Position = UDim2.fromOffset(
-				55,
-				(err.line - 1)
-					* lineHeight
-					+ lineHeight
-				- 2
-			)
+					bar.Name =
+						"ErrorUnderline"
 
-			bar.ZIndex = 6
-			bar.Parent = EditorContent
+					bar.BorderSizePixel = 0
 
-			table.insert(
-				errorBars,
-				bar
-			)
+					bar.BackgroundColor3 =
+						Color3.fromRGB(
+							244,
+							71,
+							71
+						)
+
+					bar.ZIndex = 6
+					bar.Parent = EditorContent
+
+					table.insert(
+						errorBars,
+						bar
+					)
+				end
+
+				bar.Visible = true
+
+				bar.Size =
+					UDim2.fromOffset(
+						codeWidth,
+						2
+					)
+
+				bar.Position =
+					UDim2.fromOffset(
+						55,
+
+						(visibleLine - 1)
+						* lineHeight
+						+ lineHeight
+						- 2
+					)
+			end
 		end
 	end
 
@@ -1510,137 +1877,80 @@ return function(MainFrame, Console_2)
 		end
 	end
 
-	local function isInsideStringOrComment(text, position)
-		local quote = nil
-		local i = 1
+	local bracketPairCacheText = nil
+	local bracketPairs = {}
 
-		while i < position do
-			local character = text:sub(i, i)
+	local function rebuildBracketPairCache()
+		local text = input.Text
 
-			if not quote
-				and text:sub(i, i + 1) == "--"
-			then
-				local newline = text:find(
-					"\n",
-					i,
-					true
-				)
-
-				if not newline
-					or newline >= position
-				then
-					return true
-				end
-
-				i = newline + 1
-				continue
-			end
-
-			if quote then
-				if character == "\\" then
-					i += 2
-
-				elseif character == quote then
-					quote = nil
-					i += 1
-
-				else
-					i += 1
-				end
-
-			else
-				if character == "\""
-					or character == "'"
-				then
-					quote = character
-				end
-
-				i += 1
-			end
+		if bracketPairCacheText == text then
+			return
 		end
 
-		return quote ~= nil
-	end
+		bracketPairCacheText = text
+		table.clear(bracketPairs)
 
-	local function findMatchingBracket(text, position)
+		local stack = {}
 		local pairs = {
 			["("] = ")",
 			["["] = "]",
 			["{"] = "}",
 		}
-
-		local reversePairs = {
+		local reverse = {
 			[")"] = "(",
 			["]"] = "[",
 			["}"] = "{",
 		}
 
-		local character = text:sub(
-			position,
-			position
-		)
+		local quote = nil
+		local i = 1
 
-		if isInsideStringOrComment(
-			text,
-			position
-			) then
-			return nil
-		end
+		while i <= #text do
+			local ch = text:sub(i, i)
 
-		if pairs[character] then
-			local stack = 0
-			local target = pairs[character]
-
-			for i = position, #text do
-				local current = text:sub(i, i)
-
-				if isInsideStringOrComment(
-					text,
-					i
-					) then
-					continue
+			if quote then
+				if ch == "\\" then
+					i += 2
+				elseif ch == quote then
+					quote = nil
+					i += 1
+				else
+					i += 1
 				end
+			elseif text:sub(i, i + 1) == "--" then
+				local newline = text:find("\n", i, true)
+				i = newline and (newline + 1) or (#text + 1)
+			elseif ch == "\"" or ch == "'" then
+				quote = ch
+				i += 1
+			elseif pairs[ch] then
+				table.insert(stack, {
+					char = ch,
+					position = i,
+				})
+				i += 1
+			elseif reverse[ch] then
+				local expectedOpen = reverse[ch]
 
-				if current == character then
-					stack += 1
-
-				elseif current == target then
-					stack -= 1
-
-					if stack == 0 then
-						return i
+				for s = #stack, 1, -1 do
+					if stack[s].char == expectedOpen then
+						local open = table.remove(stack, s)
+						bracketPairs[open.position] = i
+						bracketPairs[i] = open.position
+						break
 					end
 				end
-			end
 
-		elseif reversePairs[character] then
-			local stack = 0
-			local target = reversePairs[character]
-
-			for i = position, 1, -1 do
-				local current = text:sub(i, i)
-
-				if isInsideStringOrComment(
-					text,
-					i
-					) then
-					continue
-				end
-
-				if current == character then
-					stack += 1
-
-				elseif current == target then
-					stack -= 1
-
-					if stack == 0 then
-						return i
-					end
-				end
+				i += 1
+			else
+				i += 1
 			end
 		end
+	end
 
-		return nil
+	local function findMatchingBracket(_text, position)
+		rebuildBracketPairCache()
+		return bracketPairs[position]
 	end
 
 	local function getCurrentBracketPosition()
@@ -1650,30 +1960,17 @@ return function(MainFrame, Console_2)
 			return nil
 		end
 
-		local position = cursor - 1
-
-		if position >= 1 then
-			local character = input.Text:sub(
-				position,
-				position
-			)
-
-			if character:match(
-				"[%(%)%[%]{}]"
-				) then
-				return position
+		local before = cursor - 1
+		if before >= 1 then
+			local character = input.Text:sub(before, before)
+			if character:match("[%(%)%[%]{}]") then
+				return before
 			end
 		end
 
 		if cursor <= #input.Text then
-			local character = input.Text:sub(
-				cursor,
-				cursor
-			)
-
-			if character:match(
-				"[%(%)%[%]{}]"
-				) then
+			local character = input.Text:sub(cursor, cursor)
+			if character:match("[%(%)%[%]{}]") then
 				return cursor
 			end
 		end
@@ -1689,61 +1986,45 @@ return function(MainFrame, Console_2)
 		end
 
 		local position = getCurrentBracketPosition()
-
 		if not position then
 			return
 		end
 
-		local matching = findMatchingBracket(
-			input.Text,
-			position
-		)
-
+		local matching = findMatchingBracket(input.Text, position)
 		if not matching then
 			return
 		end
 
-		local line = 1
+		rebuildFoldingCache()
 
-		for i = 1, matching - 1 do
-			if input.Text:sub(i, i) == "\n" then
-				line += 1
-			end
+		local sourceLine = getCursorSourceLine(matching)
+		local visibleLine = visibleLineIndex[sourceLine]
+
+		if not visibleLine or hiddenLines[sourceLine] then
+			return
 		end
 
 		bracketOverlay = Instance.new("Frame")
-
 		bracketOverlay.Name = "BracketMatch"
 		bracketOverlay.BackgroundTransparency = 1
 		bracketOverlay.BorderSizePixel = 0
-
 		bracketOverlay.Size = UDim2.new(
 			1,
 			-55,
 			0,
 			getLineHeight()
 		)
-
 		bracketOverlay.Position = UDim2.fromOffset(
 			55,
-			(line - 1) * getLineHeight()
+			(visibleLine - 1) * getLineHeight()
 		)
-
 		bracketOverlay.ZIndex = 6
-
 		bracketOverlay.Parent = EditorContent
 
 		local stroke = Instance.new("UIStroke")
-
-		stroke.Color = Color3.fromRGB(
-			180,
-			180,
-			180
-		)
-
+		stroke.Color = Color3.fromRGB(180, 180, 180)
 		stroke.Transparency = 0.7
 		stroke.Thickness = 1
-
 		stroke.Parent = bracketOverlay
 	end
 
@@ -1751,146 +2032,142 @@ return function(MainFrame, Console_2)
 	-- GUTTER
 	-- ============================================================
 
+	local GUTTER_BUFFER_LINES = 15
+
 	local function clearGutter()
 		for _, button in ipairs(gutterButtons) do
 			if button and button.Parent then
-				button:Destroy()
+				button.Visible = false
+				button:SetAttribute("SourceLine", nil)
 			end
 		end
-
-		table.clear(gutterButtons)
 	end
 
 	local function highlightLine(lineIndex)
-		highlightedLine = math.max(
-			1,
-			lineIndex
-		)
+		highlightedLine = math.max(1, lineIndex)
+
+		rebuildFoldingCache()
+
+		local visibleLine = visibleLineIndex[highlightedLine]
+		if not visibleLine then
+			return
+		end
 
 		local lineHeight = getLineHeight()
 
 		hlBar.Visible = false
-
 		hlBar.Position = UDim2.fromOffset(
 			55,
-			(highlightedLine - 1) * lineHeight
+			(visibleLine - 1) * lineHeight
 		)
 
 		hlBar.Size = UDim2.fromOffset(
-			math.max(
-				EditorContent.AbsoluteSize.X - 55,
-				1
-			),
+			math.max(EditorContent.AbsoluteSize.X - 55, 1),
 			lineHeight
 		)
 
 		hlBar.ZIndex = 3
 	end
 
-	rebuildGutter = function()
-		clearGutter()
+	local function createGutterButton()
+		local button = Instance.new("TextButton")
+		button.Name = "VirtualLine"
+		button.BackgroundTransparency = 1
+		button.BorderSizePixel = 0
+		button.TextColor3 = Color3.fromRGB(133, 133, 133)
+		button.TextXAlignment = Enum.TextXAlignment.Right
+		button.TextYAlignment = Enum.TextYAlignment.Center
+		button.ZIndex = gutter.ZIndex
+		button.Parent = gutter
 
-		local lines = getLines(input.Text)
-		local lineHeight = getLineHeight()
+		button.MouseButton1Click:Connect(function()
+			local sourceLine = button:GetAttribute("SourceLine")
+			if not sourceLine then
+				return
+			end
 
-		--gutter.Size = UDim2.fromOffset(
-		--	55,
-		--	math.max(
-		--		EditorContent.AbsoluteSize.Y,
-		--		1
-		--	)
-		--)
+			rebuildFoldingCache()
 
-		for lineNumber = 1, #lines do
-			if not isLineHidden(lineNumber) then
-				local button = Instance.new("TextButton")
+			local endLine = foldEndByStart[sourceLine]
 
-				button.Name = "Line" .. lineNumber
-
-				button.Size = UDim2.fromOffset(
-					55,
-					lineHeight
+			if Features.CodeFolding and endLine then
+				local key = getFoldKey(
+					sourceLine,
+					endLine,
+					cachedLines
 				)
 
-				button.BackgroundTransparency = 1
-				button.BorderSizePixel = 0
-
-				button.Font = display.Font
-				button.TextSize = display.TextSize
-
-				button.TextColor3 = Color3.fromRGB(
-					133,
-					133,
-					133
-				)
-
-				button.TextXAlignment =
-					Enum.TextXAlignment.Right
-
-				button.TextYAlignment =
-					Enum.TextYAlignment.Center
-
-				button.LayoutOrder = lineNumber
-
-				local foldable =
-					Features.CodeFolding
-					and isBlockStart(lines[lineNumber])
-					and getBlockEnd(
-						lines,
-						lineNumber
-					) ~= nil
-
-				if foldable then
-					if isLineFolded(lineNumber) then
-						button.Text =
-							"▶ " .. lineNumber
-					else
-						button.Text =
-							"▼ " .. lineNumber
-					end
+				if foldedBlocks[key] then
+					foldedBlocks[key] = nil
 				else
-					button.Text =
-						tostring(lineNumber)
+					foldedBlocks[key] = true
 				end
 
-				button.Parent = gutter
+				invalidateFoldingCache()
+				updateDisplay()
+				rebuildGutter()
+				updateEditorCursor()
+			else
+				highlightLine(sourceLine)
+			end
+		end)
 
-				button.MouseButton1Click:Connect(
-					function()
-						if foldable then
-							local endLine =
-								getBlockEnd(
-									lines,
-									lineNumber
-								)
+		table.insert(gutterButtons, button)
+		return button
+	end
 
-							if endLine then
-								local key =
-									getFoldKey(
-										lineNumber,
-										endLine,
-										lines
-									)
+	rebuildGutter = function()
+		rebuildFoldingCache()
 
-								if foldedBlocks[key] then
-									foldedBlocks[key] = nil
-								else
-									foldedBlocks[key] = true
-								end
+		local firstVisible, lastVisible =
+			getViewportVisibleRange(GUTTER_BUFFER_LINES)
 
-								updateDisplay()
-								rebuildGutter()
-							end
-						else
-							highlightLine(lineNumber)
-						end
-					end
+		local needed = math.max(0, lastVisible - firstVisible + 1)
+
+		while #gutterButtons < needed do
+			createGutterButton()
+		end
+
+		clearGutter()
+
+		local lineHeight = getLineHeight()
+		local poolIndex = 0
+
+		for visibleLine = firstVisible, lastVisible do
+			local sourceLine = visibleToSourceLine[visibleLine]
+
+			if sourceLine then
+				poolIndex += 1
+
+				local button = gutterButtons[poolIndex]
+				local endLine = foldEndByStart[sourceLine]
+				local foldable =
+					Features.CodeFolding
+					and endLine ~= nil
+
+				button.Visible = true
+				button:SetAttribute("SourceLine", sourceLine)
+				button.Font = input.Font
+				button.TextSize = input.TextSize
+				button.Size = UDim2.fromOffset(55, lineHeight)
+				button.Position = UDim2.fromOffset(
+					0,
+					(visibleLine - 1) * lineHeight
 				)
 
-				table.insert(
-					gutterButtons,
-					button
-				)
+				if foldable then
+					local foldKey = getFoldKey(
+						sourceLine,
+						endLine,
+						cachedLines
+					)
+
+					button.Text =
+						(foldedBlocks[foldKey] and "▶ " or "▼ ")
+						.. sourceLine
+				else
+					button.Text = tostring(sourceLine)
+				end
 			end
 		end
 	end
@@ -2129,8 +2406,8 @@ return function(MainFrame, Console_2)
 		end
 	end
 
-	local AUTOCOMPLETE_X_OFFSET = 0
-	local AUTOCOMPLETE_Y_OFFSET = 12
+	local AUTOCOMPLETE_X_OFFSET = 4
+	local AUTOCOMPLETE_Y_OFFSET = 8
 
 	positionAutocomplete = function()
 		if not completionPopup.Visible then
@@ -2147,63 +2424,157 @@ return function(MainFrame, Console_2)
 			return
 		end
 
-		local lineNumber = 1
+		rebuildFoldingCache()
 
-		for i = 1, cursor - 1 do
-			if input.Text:sub(i, i) == "\n" then
-				lineNumber += 1
-			end
+		-- ========================================================
+		-- FIND CURRENT SOURCE / VISIBLE LINE
+		-- ========================================================
+
+		local sourceLine =
+			getCursorSourceLine(cursor)
+
+		local visibleLine =
+			visibleLineIndex[sourceLine]
+
+		if not visibleLine then
+			return
 		end
 
-		local lineHeight = getLineHeight()
+		local lineHeight =
+			getLineHeight()
 
-		local localY =
-			(lineNumber - 1)
-			* lineHeight
-			+ lineHeight
-			+ AUTOCOMPLETE_Y_OFFSET
+		-- ========================================================
+		-- FIND TEXT BEFORE CURSOR ON CURRENT LINE
+		-- ========================================================
 
-		local editorPosition =
-			EditorContent.AbsolutePosition
+		local lineStart =
+			lineStartPositions[sourceLine]
+			or 1
 
-		local framePosition =
+		local textBeforeCursor = ""
+
+		if cursor > lineStart then
+			textBeforeCursor =
+				input.Text:sub(
+					lineStart,
+					cursor - 1
+				)
+		end
+
+		-- Exact horizontal cursor position.
+		local textWidth =
+			TextService:GetTextSize(
+				textBeforeCursor,
+				input.TextSize,
+				input.Font,
+				Vector2.new(
+					100000,
+					lineHeight
+				)
+			).X
+
+		-- ========================================================
+		-- CURSOR ABSOLUTE SCREEN POSITION
+		-- ========================================================
+
+		-- IMPORTANT:
+		--
+		-- EditorContent.AbsolutePosition already accounts for
+		-- ScrollingFrame.CanvasPosition.
+		--
+		-- DO NOT subtract CanvasPosition again.
+
+		local cursorAbsoluteX =
+			display.AbsolutePosition.X
+			+ textWidth
+
+		local cursorAbsoluteY =
+			display.AbsolutePosition.Y
+			+ ((visibleLine - 1) * lineHeight)
+
+		-- Convert screen coordinates to coordinates relative
+		-- to the MainFrame, because CompletionPopup.Parent = frame.
+
+		local frameAbsolute =
 			frame.AbsolutePosition
 
-		local scrollY =
-			EditorScroll.CanvasPosition.Y
-
 		local x =
-			editorPosition.X
-		- framePosition.X
+			cursorAbsoluteX
+		- frameAbsolute.X
 			+ AUTOCOMPLETE_X_OFFSET
 
 		local y =
-			editorPosition.Y
-		- framePosition.Y
-			+ localY
-		- scrollY
+			cursorAbsoluteY
+		- frameAbsolute.Y
+			+ lineHeight
+			+ AUTOCOMPLETE_Y_OFFSET
+
+		-- ========================================================
+		-- KEEP POPUP INSIDE WINDOW
+		-- ========================================================
+
+		local popupWidth =
+			completionPopup.AbsoluteSize.X
 
 		local popupHeight =
 			completionPopup.AbsoluteSize.Y
 
+		-- AbsoluteSize may still be zero on the first frame.
+		if popupWidth <= 0 then
+			popupWidth = COMPLETION_WIDTH
+		end
+
+		if popupHeight <= 0 then
+			popupHeight =
+				math.max(
+					COMPLETION_HEIGHT,
+					#completionWords
+					* COMPLETION_HEIGHT
+				)
+		end
+
+		local frameWidth =
+			frame.AbsoluteSize.X
+
 		local frameHeight =
 			frame.AbsoluteSize.Y
 
+		-- If there isn't enough room underneath,
+		-- put autocomplete above the current line.
 		if y + popupHeight > frameHeight then
 			y =
-				editorPosition.Y
-			- framePosition.Y
-				+ (lineNumber - 1)
-				* lineHeight
+				cursorAbsoluteY
+			- frameAbsolute.Y
 			- popupHeight
 			- AUTOCOMPLETE_Y_OFFSET
-			- scrollY
 		end
 
-		y = math.max(0, y)
+		-- Keep inside left/right/bottom/top bounds.
+		x =
+			math.clamp(
+				x,
+				0,
+				math.max(
+					0,
+					frameWidth - popupWidth
+				)
+			)
+
+		y =
+			math.clamp(
+				y,
+				0,
+				math.max(
+					0,
+					frameHeight - popupHeight
+				)
+			)
 
 		completionPopup.Position =
-			UDim2.fromOffset(x, y)
+			UDim2.fromOffset(
+				math.round(x),
+				math.round(y)
+			)
 	end
 
 	local function insertCompletion()
@@ -2502,12 +2873,210 @@ return function(MainFrame, Console_2)
 		return false
 	end
 
+
+	-- ============================================================
+	-- STABLE CURSOR / VERTICAL NAVIGATION
+	-- ============================================================
+	--
+	-- IMPORTANT:
+	--
+	-- The visible editor is virtualized, but Roblox still owns the real
+	-- TextBox caret. On very large multiline TextBoxes Roblox can apply its
+	-- own mouse/Up/Down caret movement after our Lua callback. That caused
+	-- the one-time ~986 -> ~483 jump and also caused mouse clicks above the
+	-- current caret to snap back down.
+	--
+	-- Potassium now keeps ONE logical cursor position and temporarily guards
+	-- it whenever we perform custom mouse or vertical navigation.
+	-- ============================================================
+
+	local preferredVerticalColumn = nil
+
+	local logicalCursorPosition =
+		math.max(
+			1,
+			input.CursorPosition
+		)
+
+	local guardedCursorPosition = nil
+	local cursorGuardUntil = 0
+	local verticalKeyDown = false
+	local settingCursorInternally = false
+	local manualMousePlacementPending = false
+
+	local function isCursorGuardActive()
+		return guardedCursorPosition ~= nil
+			and (
+				verticalKeyDown
+				or os.clock() <= cursorGuardUntil
+			)
+	end
+
+	local function setCursorInternally(cursorPosition)
+		if not input.Parent then
+			return
+		end
+
+		cursorPosition =
+			math.clamp(
+				cursorPosition,
+				1,
+				#input.Text + 1
+			)
+
+		settingCursorInternally = true
+
+		input.CursorPosition = cursorPosition
+		input.SelectionStart = cursorPosition
+
+		settingCursorInternally = false
+
+		logicalCursorPosition = cursorPosition
+	end
+
+	local function guardCursor(cursorPosition, duration)
+		cursorPosition =
+			math.clamp(
+				cursorPosition,
+				1,
+				#input.Text + 1
+			)
+
+		guardedCursorPosition = cursorPosition
+		cursorGuardUntil =
+			math.max(
+				cursorGuardUntil,
+				os.clock() + (duration or 0.12)
+			)
+
+		setCursorInternally(cursorPosition)
+	end
+
+	local function clearCursorGuard()
+		guardedCursorPosition = nil
+		cursorGuardUntil = 0
+		verticalKeyDown = false
+	end
+
+	local function moveCursorVertically(direction)
+		if not input:IsFocused() then
+			return false
+		end
+
+		rebuildFoldingCache()
+
+		-- Never base custom navigation on a native TextBox jump.
+		local cursor =
+			guardedCursorPosition
+			or logicalCursorPosition
+			or input.CursorPosition
+
+		cursor =
+			math.clamp(
+				cursor,
+				1,
+				#input.Text + 1
+			)
+
+		local sourceLine =
+			getCursorSourceLine(cursor)
+
+		-- Move exactly one SOURCE line.
+		local targetSourceLine =
+			math.clamp(
+				sourceLine + direction,
+				1,
+				math.max(1, #cachedLines)
+			)
+
+		if targetSourceLine == sourceLine then
+			guardCursor(cursor, 0.15)
+			return true
+		end
+
+		local currentLineStart =
+			lineStartPositions[sourceLine]
+			or 1
+
+		-- Preserve the horizontal column while travelling vertically.
+		if preferredVerticalColumn == nil then
+			preferredVerticalColumn =
+				math.max(
+					0,
+					cursor - currentLineStart
+				)
+		end
+
+		local targetText =
+			cachedLines[targetSourceLine]
+			or ""
+
+		local targetLineStart =
+			lineStartPositions[targetSourceLine]
+			or 1
+
+		local targetColumn =
+			math.min(
+				preferredVerticalColumn,
+				#targetText
+			)
+
+		local newCursor =
+			targetLineStart
+			+ targetColumn
+
+		-- Keep ownership of the caret for the full physical key press.
+		guardCursor(newCursor, 0.18)
+
+		resetCursorBlink()
+		updateEditorCursor()
+
+		task.defer(function()
+			if input:IsFocused() then
+				ensureCursorVisible()
+
+				if completionPopup.Visible then
+					positionAutocomplete()
+				end
+			end
+		end)
+
+		return true
+	end
+
+	-- Continuously reject any delayed native TextBox movement while a custom
+	-- cursor operation is protected. This is much more reliable than only
+	-- checking four frames after the key press.
+	RunService.RenderStepped:Connect(function()
+		if not guardedCursorPosition then
+			return
+		end
+
+		if not isCursorGuardActive() then
+			guardedCursorPosition = nil
+			return
+		end
+
+		if input.Parent
+			and input.CursorPosition ~= guardedCursorPosition
+		then
+			setCursorInternally(
+				guardedCursorPosition
+			)
+		end
+	end)
+
+	-- Up/Down are handled later by UserInputService.
+	-- Do NOT bind them through ContextActionService here. A focused
+	-- multiline TextBox can process those bindings in an inconsistent
+	-- order relative to its native caret navigation.
+
 	-- ============================================================
 	-- BRACKET AUTO CLOSE
 	-- ============================================================
 
 	local lastAutoClosePosition = nil
-	
+
 	local function skipExistingCloser(oldText, newText)
 		if not Features.BracketAutoClose then
 			return false
@@ -3263,186 +3832,171 @@ return function(MainFrame, Console_2)
 	-- TEXT CHANGED
 	-- ============================================================
 
-	input:GetPropertyChangedSignal("Text"):Connect(
-		function()
-			if updatingText then
+	local refreshSerial = 0
+
+	local function refreshEditorView(recalculateErrors)
+		updateEditorLayout()
+		updateDisplay()
+		rebuildGutter()
+
+		if recalculateErrors then
+			currentErrors = findErrors(input.Text)
+		end
+
+		updateErrorUnderlines()
+		updateBracketMatching()
+
+		cursorNeedsUpdate = false
+
+		if input:IsFocused() then
+			updateEditorCursor()
+			ensureCursorVisible()
+		end
+	end
+
+	local function scheduleExpensiveRefresh(delaySeconds)
+		refreshSerial += 1
+		local serial = refreshSerial
+
+		task.delay(delaySeconds or 0.10, function()
+			if serial ~= refreshSerial then
 				return
 			end
 
-			cursorNeedsUpdate = true
-
-			local newText = input.Text
-			local oldText = lastText
-
-			-- ====================================================
-			-- SMART ENTER
-			-- ====================================================
-
-			if performSmartEnter(
-				oldText,
-				newText
-				) then
-				updateDisplay()
-				rebuildGutter()
-
-				currentErrors =
-					findErrors(
-						input.Text
-					)
-
-				updateErrorUnderlines()
-				updateBracketMatching()
-
-				clearAutocomplete()
-
-				return
-			end
-			
-			-- ====================================================
-			-- SKIP EXISTING AUTO-CLOSE CHARACTER
-			-- ====================================================
-
-			if skipExistingCloser(
-				oldText,
-				newText
-				) then
-				updateDisplay()
-				rebuildGutter()
-
-				currentErrors =
-					findErrors(
-						input.Text
-					)
-
-				updateErrorUnderlines()
-				updateBracketMatching()
-
-				cursorNeedsUpdate = false
-
-				task.defer(function()
-					if input:IsFocused() then
-						updateEditorCursor()
-					end
-				end)
-
+			if not frame.Parent then
 				return
 			end
 
-			-- ====================================================
-			-- AUTO CLOSE
-			-- ====================================================
-
-			if autoCloseBracket(
-				oldText,
-				newText
-				) then
-
-				updateDisplay()
-				rebuildGutter()
-
-				currentErrors =
-					findErrors(
-						input.Text
-					)
-
-				updateErrorUnderlines()
-				updateBracketMatching()
-
-				cursorNeedsUpdate = false
-
-				-- Give Roblox one frame to finish updating Display.
-				task.defer(function()
-					if input:IsFocused() then
-						updateEditorCursor()
-					end
-				end)
-
-				return
-			end
-
-			lastText = newText
-
-			-- ====================================================
-			-- UPDATE FOLDS
-			-- ====================================================
-
-			local validFolds = {}
-
-			local lines =
-				getLines(input.Text)
-
-			for key, state in pairs(foldedBlocks) do
-				if state then
-					local startLine =
-						tonumber(
-							key:match(
-								"^(%d+):"
-							)
-						)
-
-					if startLine
-						and lines[startLine]
-						and isBlockStart(
-							lines[startLine]
-						)
-					then
-						local endLine =
-							getBlockEnd(
-								lines,
-								startLine
-							)
-
-						if endLine then
-							local newKey =
-								getFoldKey(
-									startLine,
-									endLine,
-									lines
-								)
-
-							validFolds[newKey] =
-								true
-						end
-					end
-				end
-			end
-
-			foldedBlocks = validFolds
-
-			-- ====================================================
-			-- UPDATE EVERYTHING
-			-- ====================================================
-
-			updateDisplay()
-			rebuildGutter()
-
-			currentErrors =
-				findErrors(
-					input.Text
-				)
-
+			currentErrors = findErrors(input.Text)
 			updateErrorUnderlines()
 			updateBracketMatching()
+		end)
+	end
 
-			cursorNeedsUpdate = false
+	input:GetPropertyChangedSignal("Text"):Connect(function()
+		invalidateFoldingCache()
+		invalidateHorizontalWidthCache()
 
-			task.defer(function()
-				if input:IsFocused() then
-					updateEditorCursor()
+		if updatingText then
+			return
+		end
+
+		cursorNeedsUpdate = true
+
+		local newText = input.Text
+		local oldText = lastText
+
+		-- Smart Enter may rewrite Text/CursorPosition itself.
+		if performSmartEnter(oldText, newText) then
+			lastText = input.Text
+			invalidateFoldingCache()
+			refreshEditorView(false)
+			scheduleExpensiveRefresh(0.08)
+			clearAutocomplete()
+			return
+		end
+
+		-- Skip a closer that was already inserted automatically.
+		if skipExistingCloser(oldText, newText) then
+			lastText = input.Text
+			invalidateFoldingCache()
+			refreshEditorView(false)
+			scheduleExpensiveRefresh(0.08)
+			return
+		end
+
+		-- Insert matching quotes/brackets.
+		if autoCloseBracket(oldText, newText) then
+			lastText = input.Text
+			invalidateFoldingCache()
+			refreshEditorView(false)
+			scheduleExpensiveRefresh(0.08)
+			return
+		end
+
+		lastText = newText
+
+		-- Preserve only folds whose start line still exists. The expensive
+		-- block pairing itself is cached and rebuilt once for this revision.
+		rebuildFoldingCache()
+
+		local validFolds = {}
+
+		for key, state in pairs(foldedBlocks) do
+			if state then
+				local startLine =
+					tonumber(key:match("^(%d+):"))
+
+				if startLine
+					and cachedLines[startLine]
+					and foldEndByStart[startLine]
+				then
+					local newKey = getFoldKey(
+						startLine,
+						foldEndByStart[startLine],
+						cachedLines
+					)
+
+					validFolds[newKey] = true
 				end
-			end)
-
-			if Features.Autocomplete then
-				showAutocomplete()
-			else
-				clearAutocomplete()
 			end
 		end
-	)
+
+		foldedBlocks = validFolds
+
+		-- Cheap viewport work is immediate. Whole-file error checking is
+		-- debounced so large pastes/typing do not freeze the client.
+		invalidateFoldingCache()
+		refreshEditorView(false)
+		scheduleExpensiveRefresh(0.12)
+
+		if Features.Autocomplete then
+			showAutocomplete()
+		else
+			clearAutocomplete()
+		end
+	end)
 
 	-- ============================================================
 	-- KEYBOARD
 	-- ============================================================
+
+	local verticalRepeatToken = 0
+	local VERTICAL_REPEAT_DELAY = 0.32
+	local VERTICAL_REPEAT_RATE = 0.045
+
+	local function handleVerticalArrowKey(keyCode)
+		if not input:IsFocused() then
+			return
+		end
+
+		-- Autocomplete owns Up/Down while it is actually visible.
+		if completionPopup.Visible
+			and Features.Autocomplete
+		then
+			guardCursor(
+				logicalCursorPosition,
+				0.20
+			)
+
+			handleAutocompleteKey(
+				keyCode
+			)
+
+			return
+		end
+
+		local direction =
+			keyCode == Enum.KeyCode.Up
+			and -1
+			or 1
+
+		verticalKeyDown = true
+
+		moveCursorVertically(
+			direction
+		)
+	end
 
 	UserInputService.InputBegan:Connect(function(inputObject, gameProcessed)
 
@@ -3455,6 +4009,63 @@ return function(MainFrame, Console_2)
 			return
 		end
 
+		-- Up/Down are handled completely by Potassium.
+		--
+		-- The CursorPosition listener rejects Roblox's native multiline
+		-- TextBox jump while the physical arrow key is down. We then move
+		-- exactly one source line ourselves here.
+		if inputObject.KeyCode == Enum.KeyCode.Up
+			or inputObject.KeyCode == Enum.KeyCode.Down
+		then
+			local keyCode =
+				inputObject.KeyCode
+
+			verticalRepeatToken += 1
+			local myToken =
+				verticalRepeatToken
+
+			handleVerticalArrowKey(
+				keyCode
+			)
+
+			-- Recreate normal editor key-repeat without ever handing vertical
+			-- navigation back to the native TextBox.
+			task.spawn(function()
+				task.wait(
+					VERTICAL_REPEAT_DELAY
+				)
+
+				while input.Parent
+					and input:IsFocused()
+					and verticalRepeatToken == myToken
+					and UserInputService:IsKeyDown(
+						keyCode
+					)
+				do
+					handleVerticalArrowKey(
+						keyCode
+					)
+
+					task.wait(
+						VERTICAL_REPEAT_RATE
+					)
+				end
+			end)
+
+			return
+		end
+
+		-- Any normal editing/navigation key ends the vertical guard and
+		-- starts a fresh preferred column next time Up/Down is used.
+		preferredVerticalColumn = nil
+		clearCursorGuard()
+
+		logicalCursorPosition =
+			math.max(
+				1,
+				input.CursorPosition
+			)
+
 		-- Handle autocomplete BEFORE checking gameProcessed.
 		if handleAutocompleteKey(inputObject.KeyCode) then
 			return
@@ -3465,39 +4076,329 @@ return function(MainFrame, Console_2)
 		end
 	end)
 
+	UserInputService.InputEnded:Connect(function(inputObject)
+		if inputObject.UserInputType
+			~= Enum.UserInputType.Keyboard
+		then
+			return
+		end
+
+		if inputObject.KeyCode ~= Enum.KeyCode.Up
+			and inputObject.KeyCode ~= Enum.KeyCode.Down
+		then
+			return
+		end
+
+		verticalRepeatToken += 1
+		verticalKeyDown = false
+
+		-- Keep a short protection tail because Roblox can publish a native
+		-- caret change just after the key-up event.
+		cursorGuardUntil =
+			os.clock() + 0.12
+	end)
+
 	-- ============================================================
 	-- CURSOR
 	-- ============================================================
 
-	input:GetPropertyChangedSignal(
-		"CursorPosition"
-	):Connect(
-		function()
+	local function getCursorPositionFromMouse(screenPosition)
+		rebuildFoldingCache()
 
-			resetCursorBlink()
+		local lineHeight = getLineHeight()
 
-			-- Let TextChanged / auto-close finish first.
-			task.defer(function()
-				if input:IsFocused() then
-					updateEditorCursor()
-				end
-			end)
+		-- Convert the screen click into DOCUMENT coordinates explicitly.
+		--
+		-- CanvasPosition is the amount by which the scrolling canvas has
+		-- moved. Using it directly avoids depending on the AbsolutePosition
+		-- behaviour of a huge TextBox inside a ScrollingFrame.
+		local viewportX =
+			screenPosition.X
+		- EditorScroll.AbsolutePosition.X
 
-			updateBracketMatching()
+		local viewportY =
+			screenPosition.Y
+		- EditorScroll.AbsolutePosition.Y
 
-			if Features.Autocomplete
-				and input:IsFocused()
-			then
-				task.defer(
-					function()
-						if input:IsFocused() then
-							showAutocomplete()
-						end
-					end
+		local documentX =
+			EditorScroll.CanvasPosition.X
+			+ viewportX
+
+		local documentY =
+			EditorScroll.CanvasPosition.Y
+			+ viewportY
+
+		local renderedLine =
+			math.floor(
+				math.max(0, documentY)
+				/ lineHeight
+			)
+			+ 1
+
+		renderedLine =
+			math.clamp(
+				renderedLine,
+				1,
+				math.max(
+					1,
+					#visibleToSourceLine
 				)
+			)
+
+		local sourceLine =
+			visibleToSourceLine[
+		renderedLine
+		]
+			or #cachedLines
+
+		local lineText =
+			cachedLines[sourceLine]
+			or ""
+
+		local lineStart =
+			lineStartPositions[sourceLine]
+			or 1
+
+		-- Gutter occupies the first 55 document pixels.
+		local localX =
+			math.max(
+				0,
+				documentX - 55
+			)
+
+		-- Binary-search the nearest insertion point.
+		local low = 0
+		local high = #lineText
+		local bestCharacter = 0
+
+		while low <= high do
+			local mid =
+				math.floor(
+					(low + high) / 2
+				)
+
+			local width =
+				TextService:GetTextSize(
+					lineText:sub(
+						1,
+						mid
+					),
+					input.TextSize,
+					input.Font,
+					Vector2.new(
+						100000,
+						lineHeight
+					)
+				).X
+
+			if width <= localX then
+				bestCharacter = mid
+				low = mid + 1
+			else
+				high = mid - 1
 			end
 		end
+
+		if bestCharacter < #lineText then
+			local leftWidth =
+				TextService:GetTextSize(
+					lineText:sub(
+						1,
+						bestCharacter
+					),
+					input.TextSize,
+					input.Font,
+					Vector2.new(
+						100000,
+						lineHeight
+					)
+				).X
+
+			local rightWidth =
+				TextService:GetTextSize(
+					lineText:sub(
+						1,
+						bestCharacter + 1
+					),
+					input.TextSize,
+					input.Font,
+					Vector2.new(
+						100000,
+						lineHeight
+					)
+				).X
+
+			if localX
+				> (leftWidth + rightWidth)
+				* 0.5
+			then
+				bestCharacter += 1
+			end
+		end
+
+		return math.clamp(
+			lineStart + bestCharacter,
+			1,
+			#input.Text + 1
+		)
+	end
+
+	-- The transparent MouseCapture sits above Input, so Roblox never gets
+	-- a native TextBox mouse hit-test. Every click is translated manually.
+	mouseCapture.InputBegan:Connect(function(
+		inputObject
 	)
+		if inputObject.UserInputType
+			~= Enum.UserInputType.MouseButton1
+		then
+			return
+		end
+
+		local clickPosition =
+			Vector2.new(
+				inputObject.Position.X,
+				inputObject.Position.Y
+			)
+
+		-- Block any CursorPosition changes caused by CaptureFocus until our
+		-- manually calculated caret has been installed.
+		manualMousePlacementPending = true
+
+		preferredVerticalColumn = nil
+		clearCursorGuard()
+
+		local cursorPosition =
+			getCursorPositionFromMouse(
+				clickPosition
+			)
+
+		if not input:IsFocused() then
+			input:CaptureFocus()
+		end
+
+		logicalCursorPosition =
+			cursorPosition
+
+		guardCursor(
+			cursorPosition,
+			0.20
+		)
+
+		manualMousePlacementPending = false
+
+		resetCursorBlink()
+		updateEditorCursor()
+		updateBracketMatching()
+
+		task.defer(function()
+			if input:IsFocused() then
+				updateEditorCursor()
+
+				if completionPopup.Visible then
+					positionAutocomplete()
+				end
+			end
+		end)
+	end)
+
+	input:GetPropertyChangedSignal(
+		"CursorPosition"
+	):Connect(function()
+
+		if settingCursorInternally then
+			return
+		end
+
+		local actualCursor =
+			math.max(
+				1,
+				input.CursorPosition
+			)
+
+		-- CaptureFocus may briefly try to choose its own caret. Ignore that
+		-- while a custom mouse placement is being installed.
+		if manualMousePlacementPending then
+			if actualCursor
+				~= logicalCursorPosition
+			then
+				setCursorInternally(
+					logicalCursorPosition
+				)
+			end
+
+			return
+		end
+
+		-- Roblox can move the TextBox caret before ContextActionService's
+		-- Up/Down callback runs. Detect the physical key state here and
+		-- reject that native movement before it can replace our logical
+		-- cursor position.
+		local nativeVerticalKeyDown =
+			UserInputService:IsKeyDown(
+				Enum.KeyCode.Up
+			)
+			or UserInputService:IsKeyDown(
+				Enum.KeyCode.Down
+			)
+
+		if nativeVerticalKeyDown
+			and not settingCursorInternally
+		then
+			local expected =
+				guardedCursorPosition
+				or logicalCursorPosition
+
+			if expected
+				and actualCursor ~= expected
+			then
+				setCursorInternally(
+					expected
+				)
+			end
+
+			return
+		end
+
+		-- During custom mouse/Up/Down movement the native TextBox is not
+		-- allowed to replace the logical cursor with its own large jump.
+		if isCursorGuardActive()
+			and guardedCursorPosition
+			and actualCursor
+			~= guardedCursorPosition
+		then
+			setCursorInternally(
+				guardedCursorPosition
+			)
+
+			return
+		end
+
+		-- This is a legitimate native cursor change such as Left/Right,
+		-- Home/End, typing, deletion, etc.
+		logicalCursorPosition =
+			actualCursor
+
+		resetCursorBlink()
+
+		task.defer(function()
+			if input:IsFocused() then
+				updateEditorCursor()
+				ensureCursorVisible()
+			end
+		end)
+
+		updateBracketMatching()
+
+		if Features.Autocomplete
+			and input:IsFocused()
+		then
+			task.defer(function()
+				if input:IsFocused() then
+					showAutocomplete()
+				end
+			end)
+		end
+	end)
 
 	-- ============================================================
 	-- FOCUS
@@ -3505,9 +4406,15 @@ return function(MainFrame, Console_2)
 
 	input.Focused:Connect(
 		function()
+			IDEINFOCUS()
+
+			logicalCursorPosition =
+				math.max(
+					1,
+					input.CursorPosition
+				)
 
 			resetCursorBlink()
-
 			updateBracketMatching()
 
 			if Features.Autocomplete then
@@ -3518,6 +4425,9 @@ return function(MainFrame, Console_2)
 
 	input.FocusLost:Connect(
 		function()
+			verticalRepeatToken += 1
+			clearCursorGuard()
+			preferredVerticalColumn = nil
 
 			editorCursor.Visible = false
 
@@ -3530,55 +4440,161 @@ return function(MainFrame, Console_2)
 	-- FONT / SIZE CHANGES
 	-- ============================================================
 
-	input:GetPropertyChangedSignal(
-		"TextSize"
-	):Connect(
-		function()
-			updateEditorLayout()
-			rebuildGutter()
-			updateDisplay()
-			updateErrorUnderlines()
-			updateBracketMatching()
-		end
+	local function refreshTextMetrics()
+		cachedMeasuredLineHeight = nil
+		invalidateFoldingCache()
+		invalidateHorizontalWidthCache()
+
+		updateEditorLayout()
+		updateDisplay()
+		rebuildGutter()
+		updateErrorUnderlines()
+		updateBracketMatching()
+		updateEditorCursor()
+	end
+
+	input:GetPropertyChangedSignal("TextSize"):Connect(
+		refreshTextMetrics
 	)
 
-	input:GetPropertyChangedSignal(
-		"LineHeight"
-	):Connect(
-		function()
-			updateEditorLayout()
-			rebuildGutter()
-			updateDisplay()
-			updateErrorUnderlines()
-			updateBracketMatching()
-		end
+	input:GetPropertyChangedSignal("LineHeight"):Connect(
+		refreshTextMetrics
 	)
 
 	-- ============================================================
-	-- SCROLL / RESIZE
+	-- SCROLL / RESIZE - OPTIMIZED
 	-- ============================================================
+
+	local scrollRefreshPending = false
+
+	local lastDisplayFirstLine = -1
+	local lastDisplayLastLine = -1
+
+	local lastGutterFirstLine = -1
+	local lastGutterLastLine = -1
+
+	local lastErrorFirstLine = -1
+	local lastErrorLastLine = -1
+
+	local function refreshViewportIfNeeded()
+		if not frame.Parent then
+			return
+		end
+
+		rebuildFoldingCache()
+
+		-- ========================================================
+		-- DISPLAY
+		-- ========================================================
+
+		local displayFirst, displayLast =
+			getViewportVisibleRange(
+				DISPLAY_BUFFER_LINES
+			)
+
+		if displayFirst ~= lastDisplayFirstLine
+			or displayLast ~= lastDisplayLastLine
+		then
+			lastDisplayFirstLine =
+				displayFirst
+
+			lastDisplayLastLine =
+				displayLast
+
+			updateDisplay()
+		end
+
+		-- ========================================================
+		-- GUTTER
+		-- ========================================================
+
+		local gutterFirst, gutterLast =
+			getViewportVisibleRange(
+				GUTTER_BUFFER_LINES
+			)
+
+		if gutterFirst ~= lastGutterFirstLine
+			or gutterLast ~= lastGutterLastLine
+		then
+			lastGutterFirstLine =
+				gutterFirst
+
+			lastGutterLastLine =
+				gutterLast
+
+			rebuildGutter()
+		end
+
+		-- ========================================================
+		-- ERRORS
+		-- ========================================================
+
+		local errorFirst, errorLast =
+			getViewportVisibleRange(5)
+
+		if errorFirst ~= lastErrorFirstLine
+			or errorLast ~= lastErrorLastLine
+		then
+			lastErrorFirstLine =
+				errorFirst
+
+			lastErrorLastLine =
+				errorLast
+
+			updateErrorUnderlines()
+		end
+
+		-- These are very cheap and should follow smoothly.
+		if completionPopup.Visible then
+			positionAutocomplete()
+		end
+
+		if input:IsFocused() then
+			updateEditorCursor()
+		end
+	end
+
+	local function queueViewportRefresh()
+		if scrollRefreshPending then
+			return
+		end
+
+		scrollRefreshPending = true
+
+		-- Run once on the next rendered frame.
+		RunService.RenderStepped:Once(function()
+			scrollRefreshPending = false
+
+			refreshViewportIfNeeded()
+		end)
+	end
 
 	EditorScroll:GetPropertyChangedSignal(
 		"AbsoluteSize"
-	):Connect(
-		function()
-			updateEditorLayout()
+	):Connect(function()
 
-			rebuildGutter()
-			updateErrorUnderlines()
-			updateBracketMatching()
-			positionAutocomplete()
-		end
-	)
+		updateEditorLayout()
+
+		-- Force all viewport systems to refresh.
+		lastDisplayFirstLine = -1
+		lastDisplayLastLine = -1
+
+		lastGutterFirstLine = -1
+		lastGutterLastLine = -1
+
+		lastErrorFirstLine = -1
+		lastErrorLastLine = -1
+
+		queueViewportRefresh()
+	end)
 
 	EditorScroll:GetPropertyChangedSignal(
 		"CanvasPosition"
-	):Connect(
-		function()
-			positionAutocomplete()
-			updateEditorCursor(false)
-		end
-	)
+	):Connect(function()
+
+		queueViewportRefresh()
+
+	end)
 
 	-- ============================================================
 	-- INITIALIZATION
