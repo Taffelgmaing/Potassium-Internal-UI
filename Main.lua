@@ -2,6 +2,7 @@
 
 local MainParent = game.CoreGui
 
+
 --// Locals \\--
 local Potassium_Internal = Instance.new("ScreenGui")
 local Intro = Instance.new("ImageLabel")
@@ -87,6 +88,8 @@ local UIListLayout_5 = Instance.new("UIListLayout")
 local UIPadding_5 = Instance.new("UIPadding")
 local Templates_2 = Instance.new("Folder")
 local Log = Instance.new("TextButton")
+
+
 
 --// Properties and Parents \\--
 -- StarterGui.Potassium_Internal
@@ -807,3 +810,5 @@ Log.Parent = Templates_2
 	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Console.lua"))(Console_2)
 
 	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Intro.lua"))(Potassium_Internal)
+	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Explorer.lua"))(MainFrame, Console_2)
+	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/ScriptViewer.lua"))(MainFrame, Console_2)
