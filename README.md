@@ -67,7 +67,6 @@ The suggestion menu supports keyboard navigation:
 -   `Down Arrow` --- next suggestion
 -   `Up Arrow` --- previous suggestion
 -   `Tab` --- accept suggestion
--   `Enter` --- accept suggestion
 -   `Escape` --- close suggestions
 
 ### Custom Editor Cursor
