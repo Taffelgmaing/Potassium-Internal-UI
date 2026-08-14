@@ -1,7 +1,6 @@
 -- Generated with Readable GUI Dumper V11
 
---local MainParent = game.CoreGui
-local MainParent = game.Players.LocalPlayer.PlayerGui
+local MainParent = game.CoreGui
 
 
 --// Locals \\--
