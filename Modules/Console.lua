@@ -451,6 +451,8 @@ return function(Console_2)
 			local visibleSize =
 				ConsoleList.AbsoluteWindowSize.Y
 
+			-- Don't scroll if everything fits
+			-- inside the visible area.
 			if canvasSize <= visibleSize then
 				return
 			end
@@ -461,6 +463,8 @@ return function(Console_2)
 				end
 			end
 
+			-- There are more logs than can be displayed,
+			-- so scroll to the bottom.
 			ConsoleList.CanvasPosition =
 				Vector2.new(
 					0,
@@ -576,7 +580,8 @@ return function(Console_2)
 			.. logType
 			.. "] "
 			.. message
-    
+
+		-- Add stack trace
 		if stackTrace then
 			formattedText =
 				formattedText
@@ -605,6 +610,7 @@ return function(Console_2)
 
 		gui.TextSize = 13
 
+		-- Automatically make the button tall enough
 		gui.AutomaticSize =
 			Enum.AutomaticSize.Y
 
