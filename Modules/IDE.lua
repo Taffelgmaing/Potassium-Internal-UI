@@ -34,6 +34,9 @@ return function(MainFrame, Console_2)
 	local Players = game:GetService("Players")
 	local UserInputService = game:GetService("UserInputService")
 	local TweenService = game:GetService("TweenService")
+	local RunService = game:GetService("RunService")
+	local TextService = game:GetService("TextService")
+	local ContextActionService = game:GetService("ContextActionService")
 
 	-- ============================================================
 	-- ROOT
@@ -67,6 +70,24 @@ return function(MainFrame, Console_2)
 		Autocomplete = true,
 		BracketAutoClose = true,
 	}
+	
+	-- ============================================================
+	-- OVERLAPPING
+	-- ============================================================
+	
+	MainFrame.MouseButton1Down:Connect(function()
+		if Console_2.ZIndex == 5 then
+			Console_2.ZIndex = 4
+		end
+		MainFrame.ZIndex = 5
+	end)
+	
+	Console_2.MouseButton1Down:Connect(function()
+		if MainFrame.ZIndex == 5 then
+			MainFrame.ZIndex = 4
+		end
+		Console_2.ZIndex = 5
+	end)
 
 	-- ============================================================
 	-- EDITOR HIERARCHY
@@ -138,8 +159,6 @@ return function(MainFrame, Console_2)
 		display = Instance.new("TextLabel")
 
 		display.Name = "Display"
-		display.Position = UDim2.fromOffset(55, 0)
-		display.Size = UDim2.fromOffset(1, 100)
 
 		display.BackgroundTransparency = 1
 		display.BorderSizePixel = 0
@@ -155,8 +174,6 @@ return function(MainFrame, Console_2)
 		input = Instance.new("TextBox")
 
 		input.Name = "Input"
-		input.Position = UDim2.fromOffset(55, 0)
-		input.Size = UDim2.fromOffset(1, 100)
 
 		input.BackgroundTransparency = 1
 		input.BorderSizePixel = 0
@@ -165,7 +182,7 @@ return function(MainFrame, Console_2)
 
 		input.Parent = EditorContent
 	end
-
+	
 	local hlBar = EditorContent:FindFirstChild("HighlightBar")
 
 	if not hlBar then
@@ -249,8 +266,11 @@ return function(MainFrame, Console_2)
 		number = "#B5CEA8",
 		functionName = "#DCDCAA",
 		normal = "#D4D4D4",
+		func = "rgb(110, 173, 255)",
+		rblx = "rgb(198, 174, 57)"
 	}
-
+	
+	--Color3.fromRGB(198, 174, 57)
 	-- ============================================================
 	-- KEYWORDS
 	-- ============================================================
@@ -278,11 +298,56 @@ return function(MainFrame, Console_2)
 		"nil",
 		"in",
 	}
+	
+	local FUNCTIONS = {
+		"print",
+		"warn",
+		"error",
+		"require",
+		"wait",
+		"task",
+		"pairs",
+		"ipairs",
+		"next",
+		"pcall",
+		"xpcall",
+		"tostring",
+		"tonumber",
+		"type",
+		"typeof",
+		"select",
+	}
+	
+	local ROBLOXKEYWORDS = {
+		"game",
+		"GetService",
+		"workspace",
+		"script",
+		"Instance",
+		"Vector2",
+		"Vector3",
+		"CFrame",
+		"Color3",
+		"UDim2",
+		"Enum",
+	}
 
 	local keywordSet = {}
 
 	for _, keyword in ipairs(KEYWORDS) do
 		keywordSet[keyword] = true
+	end
+	
+	local keywordfunctionsSet = {}
+
+	for _, keyword in ipairs(FUNCTIONS) do
+		keywordfunctionsSet[keyword] = true
+	end
+	
+	local ROBLOXKEYWORDSSet = {}
+
+	for _, keyword in ipairs(ROBLOXKEYWORDS) do
+		ROBLOXKEYWORDSSet[keyword] = true
 	end
 
 	-- ============================================================
@@ -324,6 +389,7 @@ return function(MainFrame, Console_2)
 		"Color3",
 		"UDim2",
 		"Enum",
+		"GetService",
 
 		-- Services
 		"Players",
@@ -335,7 +401,7 @@ return function(MainFrame, Console_2)
 		"ServerScriptService",
 		"StarterGui",
 		"StarterPlayer",
-
+		
 		-- Functions
 		"print",
 		"warn",
@@ -501,6 +567,8 @@ return function(MainFrame, Console_2)
 
 		return before:match("([^\n]*)$") or ""
 	end
+	
+
 
 	-- ============================================================
 	-- FOLDING
@@ -630,7 +698,231 @@ return function(MainFrame, Console_2)
 
 		return foldedBlocks[key] == true
 	end
+	
+	-- ============================================================
+	-- KEEP INPUT AND DISPLAY PERFECTLY ALIGNED
+	-- ============================================================
 
+	local function syncInputAndDisplay()
+		-- Same exact geometry
+		input.Position = display.Position
+		input.Size = display.Size
+
+		-- Same exact text rendering
+		input.Font = display.Font
+		input.TextSize = display.TextSize
+		input.LineHeight = display.LineHeight
+
+		input.TextXAlignment = display.TextXAlignment
+		input.TextYAlignment = display.TextYAlignment
+
+		input.TextWrapped = display.TextWrapped
+
+		-- Input remains invisible
+		input.TextTransparency = 1
+		input.BackgroundTransparency = 1
+	end
+
+	syncInputAndDisplay()
+	
+	-- ============================================================
+	-- CUSTOM EDITOR CURSOR
+	-- ============================================================
+	
+	local CURSOR_OFFSET_X = 4
+	local CURSOR_OFFSET_Y = 0
+
+	local editorCursor = EditorContent:FindFirstChild("EditorCursor")
+
+	if not editorCursor then
+		editorCursor = Instance.new("Frame")
+
+		editorCursor.Name = "EditorCursor"
+
+		editorCursor.BackgroundColor3 =
+			Color3.fromRGB(220, 220, 220)
+
+		editorCursor.BorderSizePixel = 0
+
+		editorCursor.Size = UDim2.fromOffset(
+			4,
+			getLineHeight()
+		)
+
+		editorCursor.Visible = false
+
+		-- Above the text.
+		editorCursor.ZIndex = 6
+
+		editorCursor.Parent = EditorContent
+	end
+
+	local cursorBlinkTimer = 0
+	local cursorBlinkVisible = true
+
+	local CURSOR_BLINK_TIME = 0.55
+
+	local function getCursorDisplayPosition()
+		if not input:IsFocused() then
+			return nil
+		end
+
+		local cursorPosition = input.CursorPosition
+
+		if cursorPosition < 1 then
+			return nil
+		end
+
+		local text = input.Text
+
+		-- Find current line.
+		local lineNumber = 1
+
+		for i = 1, cursorPosition - 1 do
+			if text:sub(i, i) == "\n" then
+				lineNumber += 1
+			end
+		end
+
+		-- Start of current line.
+		local lineStart = getLineStart(
+			text,
+			lineNumber
+		)
+
+		-- Text before cursor on this line.
+		local textBeforeCursor = ""
+
+		if cursorPosition > lineStart then
+			textBeforeCursor = text:sub(
+				lineStart,
+				cursorPosition - 1
+			)
+		end
+
+		-- IMPORTANT:
+		-- Use the exact same font/text size as Display.
+		local textWidth = TextService:GetTextSize(
+			textBeforeCursor,
+			display.TextSize,
+			display.Font,
+			Vector2.new(
+				100000,
+				getLineHeight()
+			)
+		).X
+
+		-- Find which rendered line this is.
+		local visibleLine = 0
+
+		for i = 1, lineNumber do
+			if not isLineHidden(i) then
+				visibleLine += 1
+			end
+		end
+
+		local lineHeight = getLineHeight()
+
+		-- ========================================================
+		-- USE DISPLAY'S REAL POSITION
+		-- ========================================================
+
+		local displayAbsoluteX =
+			display.AbsolutePosition.X
+
+		local displayAbsoluteY =
+			display.AbsolutePosition.Y
+
+		local contentAbsoluteX =
+			EditorContent.AbsolutePosition.X
+
+		local contentAbsoluteY =
+			EditorContent.AbsolutePosition.Y
+
+		local x =
+			(displayAbsoluteX - contentAbsoluteX)
+			+ textWidth
+
+		local y =
+			(displayAbsoluteY - contentAbsoluteY)
+			+ ((visibleLine - 1) * lineHeight)
+
+		return x, y, lineHeight
+	end
+
+	local function updateEditorCursor()
+		if not input:IsFocused() then
+			editorCursor.Visible = false
+			return
+		end
+
+		-- Wait until Display has finished rebuilding.
+		if cursorNeedsUpdate then
+			return
+		end
+
+		local x, y, lineHeight =
+			getCursorDisplayPosition()
+
+		if not x then
+			editorCursor.Visible = false
+			return
+		end
+
+		editorCursor.Visible = true
+
+		editorCursor.Size = UDim2.fromOffset(
+			2,
+			lineHeight
+		)
+
+		editorCursor.Position =
+			UDim2.fromOffset(
+				math.round(x + CURSOR_OFFSET_X),
+				math.round(y + CURSOR_OFFSET_Y)
+			)
+	end
+
+	local function resetCursorBlink()
+		cursorBlinkTimer = 0
+		cursorBlinkVisible = true
+
+		editorCursor.BackgroundTransparency = 0
+
+		updateEditorCursor()
+	end
+
+	-- ============================================================
+	-- CURSOR RENDER
+	-- ============================================================
+	
+	RunService.RenderStepped:Connect(
+		function(deltaTime)
+
+			if not input:IsFocused() then
+				editorCursor.Visible = false
+				return
+			end
+
+			-- Only update position when the editor is stable.
+			if not cursorNeedsUpdate then
+				updateEditorCursor()
+			end
+
+			cursorBlinkTimer += deltaTime
+
+			if cursorBlinkTimer >= CURSOR_BLINK_TIME then
+				cursorBlinkTimer = 0
+
+				cursorBlinkVisible =
+					not cursorBlinkVisible
+
+				editorCursor.BackgroundTransparency =
+					cursorBlinkVisible and 0 or 1
+			end
+		end
+	)
+	
 	-- ============================================================
 	-- SYNTAX HIGHLIGHTING
 	-- ============================================================
@@ -710,6 +1002,22 @@ return function(MainFrame, Console_2)
 							escapeRichText(word)
 						)
 					)
+				elseif keywordfunctionsSet[word] then
+					table.insert(
+						result,
+						('<font color="%s">%s</font>'):format(
+							COLORS.func,
+							escapeRichText(word)
+						)
+					)
+				elseif ROBLOXKEYWORDSSet[word] then
+					table.insert(
+						result,
+						('<font color="%s">%s</font>'):format(
+							COLORS.rblx,
+							escapeRichText(word)
+						)
+					)
 				else
 					table.insert(result, escapeRichText(word))
 				end
@@ -773,11 +1081,11 @@ return function(MainFrame, Console_2)
 		-- Do NOT create an AbsoluteSize connection here.
 		--
 		-- The original script created a new connection every time
-		-- updateEditorLayout() ran
+		-- updateEditorLayout() ran.
 		--
-		-- Also editorWidth/editorHeight were never defined.
+		-- Also, editorWidth/editorHeight were never defined.
 		--
-		-- We get the shit directly from EditorScroll.
+		-- We get the dimensions directly from EditorScroll.
 
 		local absoluteSize = EditorScroll.AbsoluteSize
 
@@ -814,12 +1122,12 @@ return function(MainFrame, Console_2)
 			1
 		)
 
-		input.Position = UDim2.fromOffset(55, 0)
+		--input.Position = UDim2.fromOffset(55, 0)
 
-		input.Size = UDim2.fromOffset(
-			codeWidth,
-			contentHeight
-		)
+		--input.Size = UDim2.fromOffset(
+		--	codeWidth,
+		--	contentHeight
+		--)
 
 		--display.Position = UDim2.fromOffset(55, 0)
 
@@ -2127,7 +2435,57 @@ return function(MainFrame, Console_2)
 
 		-- TAB
 		if keyCode == Enum.KeyCode.Tab then
-			return insertCompletion()
+			local accepted = insertCompletion()
+
+			if accepted then
+				task.spawn(function()
+					-- Wait for Roblox's TextBox to process Tab.
+					RunService.Heartbeat:Wait()
+
+					if not input:IsFocused() then
+						return
+					end
+
+					local text = input.Text
+					local cursor = input.CursorPosition
+
+					if cursor < 1 then
+						return
+					end
+
+					-- Remove the native tab if Roblox added it.
+					if cursor > 1
+						and text:sub(
+							cursor - 1,
+							cursor - 1
+						) == "\t"
+					then
+						updatingText = true
+
+						input.Text =
+							text:sub(
+								1,
+								cursor - 2
+							)
+							.. text:sub(cursor)
+
+						input.CursorPosition =
+							cursor - 1
+
+						lastText = input.Text
+
+						updatingText = false
+
+						updateDisplay()
+						rebuildGutter()
+						updateBracketMatching()
+					end
+				end)
+
+				return true
+			end
+
+			return false
 		end
 
 		-- ENTER
@@ -2149,6 +2507,69 @@ return function(MainFrame, Console_2)
 	-- ============================================================
 
 	local lastAutoClosePosition = nil
+	
+	local function skipExistingCloser(oldText, newText)
+		if not Features.BracketAutoClose then
+			return false
+		end
+
+		if #newText ~= #oldText + 1 then
+			return false
+		end
+
+		local cursor = input.CursorPosition
+
+		if cursor < 2 then
+			return false
+		end
+
+		local insertedPosition = cursor - 1
+
+		local inserted =
+			newText:sub(
+				insertedPosition,
+				insertedPosition
+			)
+
+		local closers = {
+			[")"] = true,
+			["]"] = true,
+			["}"] = true,
+			['"'] = true,
+			["'"] = true,
+		}
+
+		if not closers[inserted] then
+			return false
+		end
+
+		-- Check what was already at this position BEFORE
+		-- Roblox inserted the newly typed character.
+		local existing =
+			oldText:sub(
+				insertedPosition,
+				insertedPosition
+			)
+
+		if existing ~= inserted then
+			return false
+		end
+
+		-- Remove the duplicate character Roblox just inserted,
+		-- and move the real cursor past the existing closer.
+		updatingText = true
+
+		input.Text = oldText
+
+		input.CursorPosition =
+			insertedPosition + 1
+
+		lastText = input.Text
+
+		updatingText = false
+
+		return true
+	end
 
 	local function autoCloseBracket(oldText, newText)
 		if not Features.BracketAutoClose then
@@ -2220,32 +2641,36 @@ return function(MainFrame, Console_2)
 	-- DRAGGING
 	-- ============================================================
 
-	local function MakeDraggable(dragObject, object)
-		local dragging = false
-		local dragStart = nil
-		local startPosition = nil
+	local function MakeDraggable(topbarobject, object)
+		local Dragging = nil
+		local DragInput = nil
+		local DragStart = nil
+		local StartPosition = nil
 
-		dragObject.InputBegan:Connect(
-			function(inputObject)
-				if inputObject.UserInputType
-					== Enum.UserInputType.MouseButton1
-					or inputObject.UserInputType
-					== Enum.UserInputType.Touch
-				then
-					dragging = true
+		local function Update(input)
+			local Delta = input.Position - DragStart
+			local pos =
+				UDim2.new(
+					StartPosition.X.Scale,
+					StartPosition.X.Offset + Delta.X,
+					StartPosition.Y.Scale,
+					StartPosition.Y.Offset + Delta.Y
+				)
+			local Tween = TweenService:Create(object, TweenInfo.new(0.2), {Position = pos})
+			Tween:Play()
+		end
 
-					dragStart =
-						inputObject.Position
+		topbarobject.InputBegan:Connect(
+			function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					Dragging = true
+					DragStart = input.Position
+					StartPosition = object.Position
 
-					startPosition =
-						object.Position
-
-					inputObject.Changed:Connect(
+					input.Changed:Connect(
 						function()
-							if inputObject.UserInputState
-								== Enum.UserInputState.End
-							then
-								dragging = false
+							if input.UserInputState == Enum.UserInputState.End then
+								Dragging = false
 							end
 						end
 					)
@@ -2253,34 +2678,22 @@ return function(MainFrame, Console_2)
 			end
 		)
 
-		UserInputService.InputChanged:Connect(
-			function(inputObject)
-				if not dragging then
-					return
-				end
-
-				if inputObject.UserInputType
-					~= Enum.UserInputType.MouseMovement
-					and inputObject.UserInputType
-					~= Enum.UserInputType.Touch
+		topbarobject.InputChanged:Connect(
+			function(input)
+				if
+					input.UserInputType == Enum.UserInputType.MouseMovement or
+					input.UserInputType == Enum.UserInputType.Touch
 				then
-					return
+					DragInput = input
 				end
+			end
+		)
 
-				local delta =
-					inputObject.Position
-				- dragStart
-
-				object.Position =
-					UDim2.new(
-						startPosition.X.Scale,
-						startPosition.X.Offset
-						+ delta.X,
-
-						startPosition.Y.Scale,
-						startPosition.Y.Offset
-						+ delta.Y
-					)
+		UserInputService.InputChanged:Connect(
+			function(input)
+				if input == DragInput and Dragging then
+					Update(input)
+				end
 			end
 		)
 	end
@@ -2856,6 +3269,8 @@ return function(MainFrame, Console_2)
 				return
 			end
 
+			cursorNeedsUpdate = true
+
 			local newText = input.Text
 			local oldText = lastText
 
@@ -2882,12 +3297,12 @@ return function(MainFrame, Console_2)
 
 				return
 			end
-
+			
 			-- ====================================================
-			-- AUTO CLOSE
+			-- SKIP EXISTING AUTO-CLOSE CHARACTER
 			-- ====================================================
 
-			if autoCloseBracket(
+			if skipExistingCloser(
 				oldText,
 				newText
 				) then
@@ -2901,6 +3316,46 @@ return function(MainFrame, Console_2)
 
 				updateErrorUnderlines()
 				updateBracketMatching()
+
+				cursorNeedsUpdate = false
+
+				task.defer(function()
+					if input:IsFocused() then
+						updateEditorCursor()
+					end
+				end)
+
+				return
+			end
+
+			-- ====================================================
+			-- AUTO CLOSE
+			-- ====================================================
+
+			if autoCloseBracket(
+				oldText,
+				newText
+				) then
+
+				updateDisplay()
+				rebuildGutter()
+
+				currentErrors =
+					findErrors(
+						input.Text
+					)
+
+				updateErrorUnderlines()
+				updateBracketMatching()
+
+				cursorNeedsUpdate = false
+
+				-- Give Roblox one frame to finish updating Display.
+				task.defer(function()
+					if input:IsFocused() then
+						updateEditorCursor()
+					end
+				end)
 
 				return
 			end
@@ -2969,6 +3424,14 @@ return function(MainFrame, Console_2)
 			updateErrorUnderlines()
 			updateBracketMatching()
 
+			cursorNeedsUpdate = false
+
+			task.defer(function()
+				if input:IsFocused() then
+					updateEditorCursor()
+				end
+			end)
+
 			if Features.Autocomplete then
 				showAutocomplete()
 			else
@@ -3010,6 +3473,16 @@ return function(MainFrame, Console_2)
 		"CursorPosition"
 	):Connect(
 		function()
+
+			resetCursorBlink()
+
+			-- Let TextChanged / auto-close finish first.
+			task.defer(function()
+				if input:IsFocused() then
+					updateEditorCursor()
+				end
+			end)
+
 			updateBracketMatching()
 
 			if Features.Autocomplete
@@ -3032,6 +3505,9 @@ return function(MainFrame, Console_2)
 
 	input.Focused:Connect(
 		function()
+
+			resetCursorBlink()
+
 			updateBracketMatching()
 
 			if Features.Autocomplete then
@@ -3042,6 +3518,9 @@ return function(MainFrame, Console_2)
 
 	input.FocusLost:Connect(
 		function()
+
+			editorCursor.Visible = false
+
 			clearAutocomplete()
 			removeBracketOverlay()
 		end
@@ -3097,6 +3576,7 @@ return function(MainFrame, Console_2)
 	):Connect(
 		function()
 			positionAutocomplete()
+			updateEditorCursor(false)
 		end
 	)
 
