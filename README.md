@@ -3,16 +3,16 @@
 ```{=html}
 <p align="center">
 ```
-`<b>`{=html}A custom Luau code editor / IDE built for
-Roblox.`</b>`{=html}
-```{=html}
+`<b>`A custom Luau code editor / IDE built for
+Roblox.`</b>`
+```
 </p>
 ```
-```{=html}
+```
 <p align="center">
 ```
-Made by `<b>`{=html}Mana`</b>`{=html}
-```{=html}
+Made by `<b>`}Mana`</b>`
+```
 </p>
 ```
 
@@ -307,11 +307,11 @@ Creator and developer of **Potassium IDE**.
 
 ------------------------------------------------------------------------
 
-```{=html}
+```
 <p align="center">
 ```
-`<b>`{=html}Potassium IDE`</b>`{=html}`<br>`{=html} A custom Luau
+`<b>`Potassium IDE`</b>``<br>` A custom Luau
 editing experience for Roblox.
-```{=html}
+```
 </p>
 ```
