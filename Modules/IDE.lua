@@ -66,6 +66,63 @@ return function(MainFrame, Console_2)
 	]]
 
 	-- ============================================================
+	-- EASY EDIT SETTINGS
+	-- ============================================================
+	-- Change values in THIS block instead of searching through the file.
+
+	local SETTINGS = {
+		Editor = {
+			Background = Color3.fromRGB(30, 30, 30),
+
+			Features = {
+				SmartEnter = false,
+				BracketMatching = true,
+				ErrorUnderline = true,
+				CodeFolding = true,
+				Autocomplete = true,
+				BracketAutoClose = true,
+			},
+
+			HorizontalEndPadding = 60,
+
+			Viewport = {
+				DisplayBufferLines = 20,
+				GutterBufferLines = 20,
+			},
+		},
+
+		Autocomplete = {
+			MaxResults = 8,
+			RowHeight = 22,
+			Width = 220,
+			XOffset = 4,
+			YOffset = 8,
+		},
+
+		Cursor = {
+			XOffset = 5,
+			YOffset = 0,
+			BlinkTime = 0.5,
+			AutoScrollPaddingX = 24,
+			AutoScrollPaddingY = 20,
+			VerticalRepeatDelay = 0.32,
+			VerticalRepeatRate = 0.045,
+		},
+
+		SyntaxColors = {
+			keyword = "#569CD6",
+			string = "#CE9178",
+			comment = "#6A9955",
+			number = "#B5CEA8",
+			functionName = "#DCDCAA",
+			normal = "#D4D4D4",
+			func = "rgb(110, 173, 255)",
+			rblx = "rgb(198, 174, 57)",
+			symbol = "#4EC9B0",
+		},
+	}
+
+	-- ============================================================
 	-- [01] SERVICES
 	-- ============================================================
 
@@ -119,16 +176,9 @@ return function(MainFrame, Console_2)
 	-- [03] CONFIGURATION / FEATURE FLAGS
 	-- ============================================================
 
-	local EDITOR_BG = Color3.fromRGB(30, 30, 30)
+	local EDITOR_BG = SETTINGS.Editor.Background
 
-	local Features = {
-		SmartEnter = false,
-		BracketMatching = true,
-		ErrorUnderline = true,
-		CodeFolding = true,
-		Autocomplete = true,
-		BracketAutoClose = true,
-	}
+	local Features = SETTINGS.Editor.Features
 
 	-- ============================================================
 	-- [04] WINDOW FOCUS / Z-ORDER
@@ -437,20 +487,7 @@ return function(MainFrame, Console_2)
 	-- [11] THEME / SYNTAX COLORS
 	-- ============================================================
 
-	local COLORS = {
-		keyword = "#569CD6",
-		string = "#CE9178",
-		comment = "#6A9955",
-		number = "#B5CEA8",
-		functionName = "#DCDCAA",
-		normal = "#D4D4D4",
-		func = "rgb(110, 173, 255)",
-		rblx = "rgb(198, 174, 57)",
-
-		-- User-declared locals, parameters, loop variables and function
-		-- references. Kept separate from Roblox/global keywords.
-		symbol = "#4EC9B0",
-	}
+	local COLORS = SETTINGS.SyntaxColors
 
 	--Color3.fromRGB(198, 174, 57)
 	-- ============================================================
@@ -638,9 +675,9 @@ return function(MainFrame, Console_2)
 	local highlightedLine = 1
 	local cursorNeedsUpdate = false
 
-	local MAX_COMPLETIONS = 8
-	local COMPLETION_HEIGHT = 22
-	local COMPLETION_WIDTH = 220
+	local MAX_COMPLETIONS = SETTINGS.Autocomplete.MaxResults
+	local COMPLETION_HEIGHT = SETTINGS.Autocomplete.RowHeight
+	local COMPLETION_WIDTH = SETTINGS.Autocomplete.Width
 
 	-- ============================================================
 	-- [15] SHARED TEXT UTILITIES
@@ -1062,8 +1099,8 @@ return function(MainFrame, Console_2)
 	-- [19] CUSTOM EDITOR CURSOR
 	-- ============================================================
 
-	local CURSOR_OFFSET_X = 4
-	local CURSOR_OFFSET_Y = 0
+	local CURSOR_OFFSET_X = SETTINGS.Cursor.XOffset
+	local CURSOR_OFFSET_Y = SETTINGS.Cursor.YOffset
 
 	local editorCursor = EditorContent:FindFirstChild("EditorCursor")
 
@@ -1079,7 +1116,7 @@ return function(MainFrame, Console_2)
 
 	local cursorBlinkTimer = 0
 	local cursorBlinkVisible = true
-	local CURSOR_BLINK_TIME = 0.55
+	local CURSOR_BLINK_TIME = SETTINGS.Cursor.BlinkTime
 
 	local function getCursorDisplayPosition()
 		if not input:IsFocused() then
@@ -2478,7 +2515,7 @@ return function(MainFrame, Console_2)
 	-- [24] HORIZONTAL CONTENT MEASUREMENT
 	-- ============================================================
 
-	local HORIZONTAL_END_PADDING = 60
+	local HORIZONTAL_END_PADDING = SETTINGS.Editor.HorizontalEndPadding
 	local cachedHorizontalText = nil
 	local cachedHorizontalTextSize = nil
 	local cachedHorizontalFont = nil
@@ -2619,7 +2656,7 @@ return function(MainFrame, Console_2)
 
 	-- Virtualized display: only syntax-highlight the lines close to the
 	-- viewport. The invisible TextBox still owns the complete source.
-	local DISPLAY_BUFFER_LINES = 20
+	local DISPLAY_BUFFER_LINES = SETTINGS.Editor.Viewport.DisplayBufferLines
 
 	local viewportDisplay = display:FindFirstChild("ViewportDisplay")
 
@@ -5029,8 +5066,8 @@ return function(MainFrame, Console_2)
 		end
 	end
 
-	local AUTOCOMPLETE_X_OFFSET = 4
-	local AUTOCOMPLETE_Y_OFFSET = 8
+	local AUTOCOMPLETE_X_OFFSET = SETTINGS.Autocomplete.XOffset
+	local AUTOCOMPLETE_Y_OFFSET = SETTINGS.Autocomplete.YOffset
 
 	-- ------------------------------------------------------------
 	-- AUTOCOMPLETE: POPUP POSITION
@@ -6512,7 +6549,7 @@ return function(MainFrame, Console_2)
 					input.Text,
 					"PotassiumEditor"
 				)
-				
+
 				if not compiled then
 					showEditorExecutionError(
 						compileError
@@ -6896,8 +6933,8 @@ return function(MainFrame, Console_2)
 	-- ============================================================
 
 	local verticalRepeatToken = 0
-	local VERTICAL_REPEAT_DELAY = 0.32
-	local VERTICAL_REPEAT_RATE = 0.045
+	local VERTICAL_REPEAT_DELAY = SETTINGS.Cursor.VerticalRepeatDelay
+	local VERTICAL_REPEAT_RATE = SETTINGS.Cursor.VerticalRepeatRate
 
 	local function handleVerticalArrowKey(keyCode)
 		if not input:IsFocused() then
