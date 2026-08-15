@@ -2,6 +2,45 @@ return function(Console_2)
 
 
 	-- ============================================================
+	-- EASY EDIT SETTINGS
+	-- ============================================================
+
+	local SETTINGS = {
+		Window = {
+			MinWidth = 300,
+			MinHeight = 200,
+			MaxWidth = 1200,
+			MaxHeight = 800,
+		},
+
+		BottomBar = {
+			Height = 36,
+			ControlHeight = 28,
+			Gap = 6,
+			EdgePadding = 8,
+			ClearWidth = 92,
+			AutoScrollWidth = 94,
+			LogCountWidth = 88,
+			CloseWidth = 94,
+		},
+
+		Logging = {
+			MaxLogs = 500,
+			AutoScroll = true,
+			ShowTimestamp = true,
+		},
+
+		Colors = {
+			Print = Color3.fromRGB(220, 220, 220),
+			Info = Color3.fromRGB(100, 180, 255),
+			Warn = Color3.fromRGB(255, 190, 70),
+			Error = Color3.fromRGB(255, 80, 80),
+			Success = Color3.fromRGB(110, 220, 130),
+			Time = Color3.fromRGB(120, 120, 120),
+		},
+	}
+
+	-- ============================================================
 	-- POTASSIUM CONSOLE
 	-- ============================================================
 
@@ -12,12 +51,190 @@ return function(Console_2)
 
 	local ConsoleList = ConsoleHolder.LogsFrame.Holder
 
+	-- Leave room for the fixed bottom toolbar.
+	local LogsFrame =
+		ConsoleHolder:FindFirstChild("LogsFrame")
+
+	if LogsFrame then
+		LogsFrame.Size =
+			UDim2.new(
+				1,
+				0,
+				1,
+				-36
+			)
+	end
+
 	local ClearButton = ConsoleHolder.Settings:FindFirstChild("Clear")
 	local LogCount = ConsoleHolder.Settings:FindFirstChild("LogCount")
 	local AutoScrollButton = ConsoleHolder.Settings:FindFirstChild("AutoScroll")
 	local CloseConsoleButton = ConsoleHolder.Settings:FindFirstChild("Close")
 
 	local UserInputService = game:GetService("UserInputService")
+
+	-- ============================================================
+	-- FIXED CONSOLE BOTTOM BAR
+	-- ============================================================
+	--
+	-- Keep the console controls INSIDE the console at all sizes.
+	-- The toolbar itself follows the bottom edge, while the controls use
+	-- fixed pixel positions/sizes instead of inheriting scale-based layout.
+
+	local SettingsBar =
+		ConsoleHolder:FindFirstChild("Settings")
+
+	local BOTTOM_BAR_HEIGHT = SETTINGS.BottomBar.Height
+	local CONTROL_HEIGHT = SETTINGS.BottomBar.ControlHeight
+	local CONTROL_GAP = SETTINGS.BottomBar.Gap
+	local EDGE_PADDING = SETTINGS.BottomBar.EdgePadding
+
+	local function styleBottomControl(control)
+		if not control
+			or not control:IsA("GuiObject")
+		then
+			return
+		end
+
+		control.AnchorPoint =
+			Vector2.new(0, 0.5)
+
+		control.Size =
+			UDim2.fromOffset(
+				math.max(
+					1,
+					control.AbsoluteSize.X
+				),
+				CONTROL_HEIGHT
+			)
+
+		control.Visible = true
+	end
+
+	local function layoutConsoleBottomBar()
+		if not SettingsBar then
+			return
+		end
+
+		-- Keep the full settings bar locked to the bottom INSIDE ConsoleHolder.
+		SettingsBar.AnchorPoint =
+			Vector2.new(0, 1)
+
+		SettingsBar.Position =
+			UDim2.new(
+				0,
+				0,
+				1,
+				0
+			)
+
+		SettingsBar.Size =
+			UDim2.new(
+				1,
+				-16,
+				0,
+				BOTTOM_BAR_HEIGHT
+			)
+
+		SettingsBar.Visible = true
+
+		-- Explicit widths so none of these controls collapse/disappear.
+		if ClearButton then
+			ClearButton.AnchorPoint =
+				Vector2.new(0, 0.5)
+
+			ClearButton.Position =
+				UDim2.new(
+					0,
+					EDGE_PADDING,
+					0.5,
+					0
+				)
+
+			ClearButton.Size =
+				UDim2.fromOffset(
+					SETTINGS.BottomBar.ClearWidth,
+					CONTROL_HEIGHT
+				)
+
+			ClearButton.Visible = true
+		end
+
+		if AutoScrollButton then
+			AutoScrollButton.AnchorPoint =
+				Vector2.new(0, 0.5)
+
+			AutoScrollButton.Position =
+				UDim2.new(
+					0,
+					EDGE_PADDING + SETTINGS.BottomBar.ClearWidth + CONTROL_GAP,
+					0.5,
+					0
+				)
+
+			AutoScrollButton.Size =
+				UDim2.fromOffset(
+					SETTINGS.BottomBar.AutoScrollWidth,
+					CONTROL_HEIGHT
+				)
+
+			AutoScrollButton.Visible = true
+		end
+
+		if LogCount then
+			LogCount.AnchorPoint =
+				Vector2.new(0, 0.5)
+
+			LogCount.Position =
+				UDim2.new(
+					0,
+					EDGE_PADDING
+					+ SETTINGS.BottomBar.ClearWidth
+					+ CONTROL_GAP
+					+ SETTINGS.BottomBar.AutoScrollWidth
+					+ CONTROL_GAP,
+					0.5,
+					0
+				)
+
+			LogCount.Size =
+				UDim2.fromOffset(
+					SETTINGS.BottomBar.LogCountWidth,
+					CONTROL_HEIGHT
+				)
+
+			LogCount.Visible = true
+		end
+
+		if CloseConsoleButton then
+
+			CloseConsoleButton.AnchorPoint =
+				Vector2.new(0, 0.5)
+
+			CloseConsoleButton.Position =
+				UDim2.new(
+					0,
+					EDGE_PADDING
+					+ 187
+					+ CONTROL_GAP
+					+ 94
+					+ CONTROL_GAP,
+					0.5,
+					0
+				)
+
+			CloseConsoleButton.Size =
+				UDim2.fromOffset(
+					94,
+					CONTROL_HEIGHT
+				)
+
+			CloseConsoleButton.Visible = true
+		end
+	end
+
+	task.defer(function()
+		layoutConsoleBottomBar()
+	end)
 	local TweenService = game:GetService("TweenService")
 
 	-- ============================================================
@@ -145,11 +362,11 @@ return function(Console_2)
 	-- RESIZE SETTINGS
 	-- ============================================================
 
-	local MIN_WIDTH = 300
-	local MIN_HEIGHT = 200
+	local MIN_WIDTH = SETTINGS.Window.MinWidth
+	local MIN_HEIGHT = SETTINGS.Window.MinHeight
 
-	local MAX_WIDTH = 1200
-	local MAX_HEIGHT = 800
+	local MAX_WIDTH = SETTINGS.Window.MaxWidth
+	local MAX_HEIGHT = SETTINGS.Window.MaxHeight
 
 	local resizing = false
 	local resizeStartMouse = nil
@@ -236,6 +453,8 @@ return function(Console_2)
 					newHeight
 				)
 
+			layoutConsoleBottomBar()
+
 		end
 	)
 
@@ -252,6 +471,7 @@ return function(Console_2)
 			then
 
 				resizing = false
+				layoutConsoleBottomBar()
 
 			end
 
@@ -273,8 +493,8 @@ return function(Console_2)
 	-- CONFIG
 	-- ============================================================
 
-	local MAX_LOGS = 500
-	local AUTO_SCROLL = true
+	local MAX_LOGS = SETTINGS.Logging.MaxLogs
+	local AUTO_SCROLL = SETTINGS.Logging.AutoScroll
 
 	if AutoScrollButton then
 		AutoScrollButton.ImageLabel.BackgroundColor3 = AUTO_SCROLL and Color3.fromRGB(172,255,47) or Color3.fromRGB(255,88,91)
@@ -289,7 +509,7 @@ return function(Console_2)
 		end)
 	end
 
-	local SHOW_TIMESTAMP = true
+	local SHOW_TIMESTAMP = SETTINGS.Logging.ShowTimestamp
 
 
 	-- ============================================================
@@ -306,51 +526,7 @@ return function(Console_2)
 	-- COLORS
 	-- ============================================================
 
-	local CONSOLE_COLORS = {
-
-		Print =
-			Color3.fromRGB(
-				220,
-				220,
-				220
-			),
-
-		Info =
-			Color3.fromRGB(
-				100,
-				180,
-				255
-			),
-
-		Warn =
-			Color3.fromRGB(
-				255,
-				190,
-				70
-			),
-
-		Error =
-			Color3.fromRGB(
-				255,
-				80,
-				80
-			),
-
-		Success =
-			Color3.fromRGB(
-				110,
-				220,
-				130
-			),
-
-		Time =
-			Color3.fromRGB(
-				120,
-				120,
-				120
-			),
-
-	}
+	local CONSOLE_COLORS = SETTINGS.Colors
 
 
 	-- ============================================================
