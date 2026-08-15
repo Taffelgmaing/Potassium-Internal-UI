@@ -365,8 +365,22 @@ return function(MainFrame, Console_2)
 	title.Position =
 		UDim2.fromOffset(12, 0)
 	title.Size =
-		UDim2.new(1, -100, 1, 0)
+		UDim2.new(1, -190, 1, 0)
 	title.TextSize = 14
+
+	local readableNamesButton =
+		newButton(
+			titleBar,
+			"ReadableNames",
+			"Names: ON"
+		)
+
+	readableNamesButton.AnchorPoint =
+		Vector2.new(1, 0.5)
+	readableNamesButton.Position =
+		UDim2.new(1, -80, 0.5, 0)
+	readableNamesButton.Size =
+		UDim2.fromOffset(78, 26)
 
 	local refreshButton =
 		newButton(
@@ -565,6 +579,34 @@ return function(MainFrame, Console_2)
 	codeLabel.ZIndex = 6
 	codeLabel.Parent = codeContent
 
+	-- Transparent plain-text layer used only for mouse selection/copying.
+	-- The syntax-colored TextLabel stays visible underneath it.
+	local selectionBox =
+		Instance.new("TextBox")
+
+	selectionBox.Name = "SelectableCode"
+	selectionBox.BackgroundTransparency = 1
+	selectionBox.BorderSizePixel = 0
+	selectionBox.Position = codeLabel.Position
+	selectionBox.Size = codeLabel.Size
+	selectionBox.Font = codeLabel.Font
+	selectionBox.TextSize = codeLabel.TextSize
+	selectionBox.TextXAlignment =
+		Enum.TextXAlignment.Left
+	selectionBox.TextYAlignment =
+		Enum.TextYAlignment.Top
+	selectionBox.TextWrapped = false
+	selectionBox.MultiLine = true
+	selectionBox.ClearTextOnFocus = false
+	selectionBox.TextEditable = false
+	selectionBox.ShowNativeInput = false
+	selectionBox.TextTransparency = 1
+	selectionBox.BackgroundColor3 =
+		Color3.fromRGB(30, 30, 30)
+	selectionBox.RichText = false
+	selectionBox.ZIndex = 10
+	selectionBox.Parent = codeContent
+
 	local resizeHandle =
 		newButton(
 			ViewerWindow,
@@ -593,9 +635,11 @@ return function(MainFrame, Console_2)
 
 	local sourceProvider = nil
 	local selectedScript = nil
+	local rawCurrentSource = ""
 	local currentSource = ""
 	local currentLines = {""}
 	local currentSourceMode = "None"
+	local readableNamesEnabled = true
 
 	local lineHeight =
 		math.max(
@@ -1211,6 +1255,447 @@ return function(MainFrame, Console_2)
 			)
 	end
 
+	-- ============================================================
+	-- READABLE DECOMPILED LOCAL NAMES
+	-- ============================================================
+	--
+	-- This is deliberately heuristic. Decompilers often produce names such
+	-- as u4/v12. Original variable names are not present in bytecode, so they
+	-- cannot be recovered perfectly. Instead, infer useful names from the
+	-- assignment context and replace only identifier tokens outside strings
+	-- and comments.
+
+	local function looksObfuscatedLocal(name)
+		return name:match("^[uv]%d+$") ~= nil
+			or name:match("^v%d+$") ~= nil
+			or name:match("^u%d+$") ~= nil
+			or name:match("^var%d+$") ~= nil
+			or name:match("^l__%d+__$") ~= nil
+	end
+
+	local function sanitizeIdentifier(name)
+		if type(name) ~= "string"
+			or name == ""
+		then
+			return nil
+		end
+
+		name =
+			name:gsub(
+				"[^%w_]",
+				""
+			)
+
+		if name == ""
+			or not name:sub(1, 1):match("[%a_]")
+		then
+			return nil
+		end
+
+		return name
+	end
+
+	local function inferLocalName(rhs)
+		-- Use double-quoted Luau strings here so the single-quote
+		-- character inside the pattern does not terminate the string.
+		local service =
+			rhs:match(
+				"game%s*:%s*GetService%s*%(%s*[\"']([^\"']+)[\"']"
+			)
+
+		if service then
+			return sanitizeIdentifier(service)
+		end
+
+		local className =
+			rhs:match(
+				"Instance%s*%.%s*new%s*%(%s*[\"']([^\"']+)[\"']"
+			)
+
+		if className then
+			return sanitizeIdentifier(className)
+		end
+
+		if rhs:match("^%s*{%s*}%s*[,;]?%s*$")
+			or rhs:match("^%s*{%s*$")
+		then
+			return "Module"
+		end
+
+		if rhs:match("^%s*require%s*%(") then
+			local requireBody =
+				rhs:match(
+					"^%s*require%s*%((.*)%)"
+				)
+				or rhs
+
+			local lastName = nil
+
+			for identifier in requireBody:gmatch(
+				"[%a_][%w_]*"
+				) do
+				if identifier ~= "require"
+					and identifier ~= "game"
+					and identifier ~= "GetService"
+				then
+					lastName = identifier
+				end
+			end
+
+			if lastName then
+				if lastName:lower():find(
+					"config",
+					1,
+					true
+					) then
+					return sanitizeIdentifier(
+						lastName
+					)
+				end
+
+				if lastName:lower():find(
+					"handler",
+					1,
+					true
+					) then
+					return sanitizeIdentifier(
+						lastName
+					)
+				end
+
+				return sanitizeIdentifier(
+					lastName
+				)
+					or "Module"
+			end
+
+			return "Module"
+		end
+
+		if rhs:find(
+			"LocalPlayer",
+			1,
+			true
+			) then
+			return "Player"
+		end
+
+		if rhs:find(
+			"HumanoidRootPart",
+			1,
+			true
+			) then
+			return "RootPart"
+		end
+
+		if rhs:find(
+			"Humanoid",
+			1,
+			true
+			) then
+			return "Humanoid"
+		end
+
+		if rhs:find(
+			".Character",
+			1,
+			true
+			) then
+			return "Character"
+		end
+
+		if rhs:match("^%s*workspace[%s%.%[]")
+			or rhs:match("^%s*workspace%s*$")
+		then
+			return "Workspace"
+		end
+
+		if rhs:match("^%s*function%s*%(") then
+			return "Callback"
+		end
+
+		if rhs:match("^%s*tonumber%s*%(") then
+			return "Number"
+		end
+
+		if rhs:match("^%s*tostring%s*%(") then
+			return "Text"
+		end
+
+		if rhs:match("^%s*[\"\\']") then
+			return "Text"
+		end
+
+		if rhs:match("^%s*[%d%-]") then
+			return "Number"
+		end
+
+		if rhs:match("^%s*true")
+			or rhs:match("^%s*false")
+		then
+			return "Flag"
+		end
+
+		-- Property-chain fallback:
+		--     local v15 = v14.Tower.Frame
+		-- becomes approximately:
+		--     local Frame = ...
+		local lastProperty = nil
+
+		for property in rhs:gmatch(
+			"%.%s*([%a_][%w_]*)"
+			) do
+			lastProperty = property
+		end
+
+		if lastProperty then
+			return sanitizeIdentifier(
+				lastProperty
+			)
+		end
+
+		return "Value"
+	end
+
+	local function collectExistingIdentifiers(source)
+		local used = {}
+
+		for identifier in source:gmatch(
+			"[%a_][%w_]*"
+			) do
+			used[identifier] = true
+		end
+
+		return used
+	end
+
+	local function makeUniqueName(
+		baseName,
+		used,
+		renamed
+	)
+		baseName =
+			sanitizeIdentifier(baseName)
+			or "Value"
+
+		if not used[baseName]
+			and not renamed[baseName]
+		then
+			return baseName
+		end
+
+		local index = 2
+
+		while used[
+			baseName .. tostring(index)
+			]
+				or renamed[
+			baseName .. tostring(index)
+			]
+		do
+			index += 1
+		end
+
+		return baseName
+			.. tostring(index)
+	end
+
+	local function buildReadableNameMap(source)
+		local mapping = {}
+		local reverseNames = {}
+		local used =
+			collectExistingIdentifiers(
+				source
+			)
+
+		for line in (
+			source .. "\n"
+			):gmatch("(.-)\n") do
+			local localName,
+				rhs =
+				line:match(
+					"^%s*local%s+([%a_][%w_]*)%s*=%s*(.-)%s*$"
+				)
+
+			if localName
+				and looksObfuscatedLocal(
+					localName
+				)
+					and not mapping[localName]
+			then
+				local inferred =
+					inferLocalName(
+						rhs
+					)
+
+				local readable =
+					makeUniqueName(
+						inferred,
+						used,
+						reverseNames
+					)
+
+				mapping[localName] =
+					readable
+
+				reverseNames[readable] =
+					true
+			end
+		end
+
+		return mapping
+	end
+
+	local function replaceIdentifiersSafely(
+		source,
+		mapping
+	)
+		if not next(mapping) then
+			return source
+		end
+
+		local output = {}
+		local i = 1
+		local length = #source
+
+		while i <= length do
+			local character =
+				source:sub(i, i)
+
+			if source:sub(i, i + 1) == "--" then
+				local newline =
+					source:find(
+						"\n",
+						i,
+						true
+					)
+					or length + 1
+
+				table.insert(
+					output,
+					source:sub(
+						i,
+						newline - 1
+					)
+				)
+
+				i = newline
+
+			elseif character == "\""
+				or character == "'"
+				or character == "`"
+			then
+				local quote = character
+				local start = i
+				i += 1
+
+				while i <= length do
+					local current =
+						source:sub(i, i)
+
+					if current == "\\" then
+						i += 2
+					elseif current == quote then
+						i += 1
+						break
+					else
+						i += 1
+					end
+				end
+
+				table.insert(
+					output,
+					source:sub(
+						start,
+						i - 1
+					)
+				)
+
+			elseif character:match("[%a_]") then
+				local start = i
+				i += 1
+
+				while i <= length
+					and source:sub(
+						i,
+						i
+					):match("[%w_]")
+				do
+					i += 1
+				end
+
+				local identifier =
+					source:sub(
+						start,
+						i - 1
+					)
+
+				local previousNonSpace = start - 1
+
+				while previousNonSpace >= 1
+					and source:sub(
+						previousNonSpace,
+						previousNonSpace
+					):match("%s")
+				do
+					previousNonSpace -= 1
+				end
+
+				local previousCharacter =
+					previousNonSpace >= 1
+					and source:sub(
+						previousNonSpace,
+						previousNonSpace
+					)
+					or ""
+
+				-- Do not rename property/member names:
+				-- object.v4 / object:v4()
+				if previousCharacter == "."
+					or previousCharacter == ":"
+				then
+					table.insert(
+						output,
+						identifier
+					)
+				else
+					table.insert(
+						output,
+						mapping[identifier]
+							or identifier
+					)
+				end
+			else
+				table.insert(
+					output,
+					character
+				)
+				i += 1
+			end
+		end
+
+		return table.concat(output)
+	end
+
+	local function makeSourceReadable(source)
+		if not readableNamesEnabled
+			or type(source) ~= "string"
+			or source == ""
+		then
+			return source
+		end
+
+		local mapping =
+			buildReadableNameMap(
+				source
+			)
+
+		return replaceIdentifiersSafely(
+			source,
+			mapping
+		)
+	end
+
 	local function calculateContentWidth()
 		local longest = ""
 
@@ -1386,6 +1871,12 @@ return function(MainFrame, Console_2)
 				height
 			)
 
+		selectionBox.Position =
+			codeLabel.Position
+
+		selectionBox.Size =
+			codeLabel.Size
+
 		gutterText.Position =
 			UDim2.fromOffset(
 				0,
@@ -1398,13 +1889,24 @@ return function(MainFrame, Console_2)
 				height
 			)
 
+		local plainChunk =
+			table.concat(
+				codeChunk,
+				"\n"
+			)
+
 		codeLabel.Text =
 			highlight(
-				table.concat(
-					codeChunk,
-					"\n"
-				)
+				plainChunk
 			)
+
+		-- This hidden plain-text TextBox sits above the RichText label.
+		-- Dragging with the mouse creates a native TextBox selection, and
+		-- Ctrl+C copies the selected source without RichText tags.
+		if not selectionBox:IsFocused() then
+			selectionBox.Text =
+				plainChunk
+		end
 
 		gutterText.Text =
 			table.concat(
@@ -1457,8 +1959,29 @@ return function(MainFrame, Console_2)
 		end
 
 		if source then
-			currentSource = source
+			rawCurrentSource = source
+
+			if sourceMode ~= "Bytecode" then
+				currentSource =
+					makeSourceReadable(
+						rawCurrentSource
+					)
+
+				if readableNamesEnabled
+					and currentSource
+					~= rawCurrentSource
+				then
+					currentSourceMode =
+						currentSourceMode
+						.. " + Readable Names"
+				end
+			else
+				currentSource =
+					rawCurrentSource
+			end
 		else
+			rawCurrentSource = ""
+
 			currentSource =
 				"-- Potassium Script Viewer\n"
 				.. "-- Work is still in progress...\n"
@@ -1468,6 +1991,20 @@ return function(MainFrame, Console_2)
 					errorMessage
 					or "Unknown source error."
 				)
+		end
+
+		if instance then
+			scriptPath.Text =
+				getInstancePath(instance)
+				.. "  •  "
+				.. currentSourceMode
+
+			title.Text =
+				"Script Viewer  •  "
+				.. instance.Name
+				.. "  ["
+				.. currentSourceMode
+				.. "]"
 		end
 
 		currentLines =
@@ -1645,6 +2182,35 @@ return function(MainFrame, Console_2)
 		end
 	end)
 
+	readableNamesButton.MouseButton1Click:Connect(function()
+		readableNamesEnabled =
+			not readableNamesEnabled
+
+		readableNamesButton.Text =
+			readableNamesEnabled
+			and "Names: ON"
+			or "Names: OFF"
+
+		if selectedScript
+			and rawCurrentSource ~= ""
+		then
+			-- Re-render the already-read source. This avoids calling the
+			-- decompiler/bytecode API again just to toggle display names.
+			local baseMode =
+				currentSourceMode:gsub(
+					"%s*%+%s*Readable Names$",
+					""
+				)
+
+			setDisplayedSource(
+				selectedScript,
+				rawCurrentSource,
+				nil,
+				baseMode
+			)
+		end
+	end)
+
 	refreshButton.MouseButton1Click:Connect(function()
 		if selectedScript then
 			openScript(selectedScript)
@@ -1669,6 +2235,10 @@ return function(MainFrame, Console_2)
 	codeScroll:GetPropertyChangedSignal(
 		"CanvasPosition"
 	):Connect(function()
+		if selectionBox:IsFocused() then
+			selectionBox:ReleaseFocus()
+		end
+
 		updateVisibleCode(false)
 	end)
 
