@@ -81,13 +81,16 @@ local HttpService = game:GetService("HttpService")
 local GuiScaleValue = 1
 
 local LocalPlayer = Players.LocalPlayer
-local MainParent = LocalPlayer.PlayerGui
-
-if gethui then
-    MainParent = gethui()
-else
-    MainParent = CoreGui
+if not LocalPlayer then
+    LocalPlayer = Players.PlayerAdded:Wait()
 end
+
+-- IMPORTANT:
+-- Keep the UI in PlayerGui. Parenting it to gethui()/CoreGui can put the
+-- descendants behind a restricted security boundary. Layout callbacks that
+-- later read those descendants can then fail with:
+-- "The current thread cannot access 'Instance' (lacking capability Plugin)".
+local MainParent = LocalPlayer:WaitForChild("PlayerGui")
 
 if MainParent:FindFirstChild(Library.Name) then
     MainParent[Library.Name]:Destroy()
@@ -181,6 +184,95 @@ function TweenItem(Data)
     return TweenItemData
 end
 
+-- Measures a UIListLayout without relying on AbsoluteContentSize.
+-- This also prevents layout sizing from hard-crashing if a protected
+-- hierarchy accidentally gets passed to the function.
+local function MeasureListLayout(ListLayout)
+    if not ListLayout then
+        return Vector2.new(0, 0)
+    end
+
+    local Parent
+    local success = pcall(function()
+        Parent = ListLayout.Parent
+    end)
+
+    if not success or not Parent then
+        return Vector2.new(0, 0)
+    end
+
+    local FillDirection = Enum.FillDirection.Vertical
+    local Padding = UDim.new(0, 0)
+    local ParentAbsoluteSize = Vector2.new(0, 0)
+
+    pcall(function()
+        FillDirection = ListLayout.FillDirection
+        Padding = ListLayout.Padding
+        ParentAbsoluteSize = Parent.AbsoluteSize
+    end)
+
+    local Children
+    success, Children = pcall(function()
+        return Parent:GetChildren()
+    end)
+
+    if not success then
+        return Vector2.new(0, 0)
+    end
+
+    local TotalPrimary = 0
+    local MaxCross = 0
+    local GuiCount = 0
+
+    for _, Child in ipairs(Children) do
+        local IsGuiObject = false
+
+        pcall(function()
+            IsGuiObject = Child:IsA("GuiObject")
+        end)
+
+        if IsGuiObject then
+            local Visible = true
+            local AbsoluteSize = Vector2.new(0, 0)
+
+            local ChildReadable = pcall(function()
+                Visible = Child.Visible
+                AbsoluteSize = Child.AbsoluteSize
+            end)
+
+            if ChildReadable and Visible then
+                GuiCount += 1
+
+                if FillDirection == Enum.FillDirection.Horizontal then
+                    TotalPrimary += AbsoluteSize.X
+                    MaxCross = math.max(MaxCross, AbsoluteSize.Y)
+                else
+                    TotalPrimary += AbsoluteSize.Y
+                    MaxCross = math.max(MaxCross, AbsoluteSize.X)
+                end
+            end
+        end
+    end
+
+    if GuiCount > 1 then
+        local PaddingPixels
+
+        if FillDirection == Enum.FillDirection.Horizontal then
+            PaddingPixels = Padding.Offset + (Padding.Scale * ParentAbsoluteSize.X)
+        else
+            PaddingPixels = Padding.Offset + (Padding.Scale * ParentAbsoluteSize.Y)
+        end
+
+        TotalPrimary += PaddingPixels * (GuiCount - 1)
+    end
+
+    if FillDirection == Enum.FillDirection.Horizontal then
+        return Vector2.new(TotalPrimary, MaxCross)
+    end
+
+    return Vector2.new(MaxCross, TotalPrimary)
+end
+
 local function AutoScaleListLayout(ListLayout, Options)
     Options = Options or {}
 
@@ -202,20 +294,40 @@ local function AutoScaleListLayout(ListLayout, Options)
     local ClosedX = Options.ClosedX or MinX
 
     local IsOpen = Options.DefaultOpen or false
+    local CurrentTween = nil
+    local UpdateQueued = false
+    local ChildConnections = {}
 
-    local CurrentTween
+    local function DisconnectChildConnections(Child)
+        local Connections = ChildConnections[Child]
+
+        if not Connections then
+            return
+        end
+
+        for _, Connection in ipairs(Connections) do
+            Connection:Disconnect()
+        end
+
+        ChildConnections[Child] = nil
+    end
 
     local function GetOpenSize()
-        local ContentSize = ListLayout.AbsoluteContentSize
+        local ContentSize = MeasureListLayout(ListLayout)
 
-        local NewX = math.clamp((ContentSize.X + ExtraX) / GuiScaleValue, MinX, MaxX)
-        local NewY = math.clamp((ContentSize.Y + ExtraY) / GuiScaleValue, MinY, MaxY)
+        local Scale = GuiScaleValue
+        if Scale == 0 then
+            Scale = 1
+        end
+
+        local NewX = math.clamp((ContentSize.X + ExtraX) / Scale, MinX, MaxX)
+        local NewY = math.clamp((ContentSize.Y + ExtraY) / Scale, MinY, MaxY)
 
         if Axis == "Y" then
             if UseScale then
                 local ParentParent = Parent.Parent
 
-                if ParentParent then
+                if ParentParent and ParentParent.AbsoluteSize.Y > 0 then
                     return UDim2.new(
                         Parent.Size.X.Scale,
                         Parent.Size.X.Offset,
@@ -223,19 +335,21 @@ local function AutoScaleListLayout(ListLayout, Options)
                         0
                     )
                 end
-            else
-                return UDim2.new(
-                    Parent.Size.X.Scale,
-                    Parent.Size.X.Offset,
-                    0,
-                    NewY
-                )
             end
-        elseif Axis == "X" then
+
+            return UDim2.new(
+                Parent.Size.X.Scale,
+                Parent.Size.X.Offset,
+                0,
+                NewY
+            )
+        end
+
+        if Axis == "X" then
             if UseScale then
                 local ParentParent = Parent.Parent
 
-                if ParentParent then
+                if ParentParent and ParentParent.AbsoluteSize.X > 0 then
                     return UDim2.new(
                         NewX / ParentParent.AbsoluteSize.X,
                         0,
@@ -243,15 +357,17 @@ local function AutoScaleListLayout(ListLayout, Options)
                         Parent.Size.Y.Offset
                     )
                 end
-            else
-                return UDim2.new(
-                    0,
-                    NewX,
-                    Parent.Size.Y.Scale,
-                    Parent.Size.Y.Offset
-                )
             end
+
+            return UDim2.new(
+                0,
+                NewX,
+                Parent.Size.Y.Scale,
+                Parent.Size.Y.Offset
+            )
         end
+
+        return Parent.Size
     end
 
     local function GetClosedSize()
@@ -262,7 +378,9 @@ local function AutoScaleListLayout(ListLayout, Options)
                 0,
                 ClosedY
             )
-        elseif Axis == "X" then
+        end
+
+        if Axis == "X" then
             return UDim2.new(
                 0,
                 ClosedX,
@@ -270,6 +388,8 @@ local function AutoScaleListLayout(ListLayout, Options)
                 Parent.Size.Y.Offset
             )
         end
+
+        return Parent.Size
     end
 
     local function TweenSize(TargetSize)
@@ -279,6 +399,7 @@ local function AutoScaleListLayout(ListLayout, Options)
 
         if CurrentTween then
             CurrentTween:Stop()
+            CurrentTween = nil
         end
 
         CurrentTween = TweenItem({
@@ -291,27 +412,11 @@ local function AutoScaleListLayout(ListLayout, Options)
         CurrentTween:Play()
     end
 
-    local function SetOpen(State)
-        IsOpen = State
-
-        if IsOpen then
-            TweenSize(GetOpenSize())
-        else
-            TweenSize(GetClosedSize())
-        end
-    end
-
-    local function Update()
+    local function UpdateNow()
         if IsOpen then
             TweenSize(GetOpenSize())
         end
     end
-
-    local function ForceUpdate()
-        TweenSize(GetOpenSize())
-    end
-
-    local UpdateQueued = false
 
     local function QueueUpdate()
         if UpdateQueued then
@@ -321,33 +426,77 @@ local function AutoScaleListLayout(ListLayout, Options)
         UpdateQueued = true
 
         task.defer(function()
-            RunService.Heartbeat:Wait()
-
             UpdateQueued = false
 
-            if not ListLayout or not Parent then
+            if not Parent or not Parent.Parent then
                 return
             end
 
-            Update()
+            UpdateNow()
         end)
     end
 
-    ListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(QueueUpdate)
-    Parent.ChildAdded:Connect(QueueUpdate)
-    Parent.ChildRemoved:Connect(QueueUpdate)
+    local function WatchChild(Child)
+        local IsGuiObject = false
+
+        pcall(function()
+            IsGuiObject = Child:IsA("GuiObject")
+        end)
+
+        if not IsGuiObject then
+            return
+        end
+
+        DisconnectChildConnections(Child)
+
+        ChildConnections[Child] = {
+            Child:GetPropertyChangedSignal("Size"):Connect(QueueUpdate),
+            Child:GetPropertyChangedSignal("Visible"):Connect(QueueUpdate),
+            Child:GetPropertyChangedSignal("LayoutOrder"):Connect(QueueUpdate),
+        }
+    end
+
+    for _, Child in ipairs(Parent:GetChildren()) do
+        WatchChild(Child)
+    end
+
+    Parent.ChildAdded:Connect(function(Child)
+        WatchChild(Child)
+        QueueUpdate()
+    end)
+
+    Parent.ChildRemoved:Connect(function(Child)
+        DisconnectChildConnections(Child)
+        QueueUpdate()
+    end)
+
+    ListLayout:GetPropertyChangedSignal("Padding"):Connect(QueueUpdate)
+    ListLayout:GetPropertyChangedSignal("FillDirection"):Connect(QueueUpdate)
+
+    local function SetOpen(State)
+        IsOpen = State == true
+
+        if IsOpen then
+            QueueUpdate()
+        else
+            TweenSize(GetClosedSize())
+        end
+    end
+
+    local function ForceUpdate()
+        if IsOpen then
+            QueueUpdate()
+        else
+            TweenSize(GetClosedSize())
+        end
+    end
 
     SetOpen(IsOpen)
 
     return {
         Update = QueueUpdate,
-
-        ForceUpdate = function()
-            QueueUpdate()
-        end,
-
+        ForceUpdate = ForceUpdate,
         SetOpen = SetOpen,
-
         IsOpen = function()
             return IsOpen
         end
@@ -355,64 +504,145 @@ local function AutoScaleListLayout(ListLayout, Options)
 end
 
 local function AutoScaleSectionContainer(Container, Holder1, Layout1, Holder2, Layout2)
-	local function Update()
-        local Height1 = (Layout1.AbsoluteContentSize.Y + 10) / GuiScaleValue
+    local UpdateQueued = false
+    local ChildConnections = {}
+
+    local function DisconnectHolderChild(Child)
+        local Connections = ChildConnections[Child]
+
+        if not Connections then
+            return
+        end
+
+        for _, Connection in ipairs(Connections) do
+            Connection:Disconnect()
+        end
+
+        ChildConnections[Child] = nil
+    end
+
+    local function GetLayoutHeight(Layout)
+        if not Layout then
+            return 0
+        end
+
+        local Scale = GuiScaleValue
+        if Scale == 0 then
+            Scale = 1
+        end
+
+        return MeasureListLayout(Layout).Y / Scale
+    end
+
+    local function UpdateNow()
+        if not Container or not Container.Parent then
+            return
+        end
+
+        local Height1 = GetLayoutHeight(Layout1) + 10
         local Height2 = 0
 
         if Holder2 and Layout2 then
-            Height2 = (Layout2.AbsoluteContentSize.Y + 10) / GuiScaleValue
+            Height2 = GetLayoutHeight(Layout2) + 10
         end
 
-		local MaxHeight = math.max(Height1, Height2)
+        local MaxHeight = math.max(Height1, Height2)
 
-		Holder1.Size = UDim2.new(
-			Holder1.Size.X.Scale,
-			Holder1.Size.X.Offset,
-			0,
-			Height1
-		)
+        Holder1.Size = UDim2.new(
+            Holder1.Size.X.Scale,
+            Holder1.Size.X.Offset,
+            0,
+            Height1
+        )
 
-		if Holder2 then
-			Holder2.Size = UDim2.new(
-				Holder2.Size.X.Scale,
-				Holder2.Size.X.Offset,
-				0,
-				Height2
-			)
-		end
+        if Holder2 then
+            Holder2.Size = UDim2.new(
+                Holder2.Size.X.Scale,
+                Holder2.Size.X.Offset,
+                0,
+                Height2
+            )
+        end
 
-		Container.CanvasSize = UDim2.new(0, 0, 0, MaxHeight + 10)
-	end
+        Container.CanvasSize = UDim2.new(0, 0, 0, MaxHeight + 10)
+    end
 
-	Layout1:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(Update)
+    local function QueueUpdate()
+        if UpdateQueued then
+            return
+        end
 
-	Holder1.ChildAdded:Connect(function()
-		task.defer(Update)
-	end)
+        UpdateQueued = true
 
-	Holder1.ChildRemoved:Connect(function()
-		task.defer(Update)
-	end)
+        task.defer(function()
+            UpdateQueued = false
+            UpdateNow()
+        end)
+    end
 
-	if Holder2 and Layout2 then
-		Layout2:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(Update)
+    local function WatchHolderChild(Child)
+        local IsGuiObject = false
 
-		Holder2.ChildAdded:Connect(function()
-			task.defer(Update)
-		end)
+        pcall(function()
+            IsGuiObject = Child:IsA("GuiObject")
+        end)
 
-		Holder2.ChildRemoved:Connect(function()
-			task.defer(Update)
-		end)
-	end
+        if not IsGuiObject then
+            return
+        end
 
-    workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-        task.defer(Update)
+        DisconnectHolderChild(Child)
+
+        ChildConnections[Child] = {
+            Child:GetPropertyChangedSignal("Size"):Connect(QueueUpdate),
+            Child:GetPropertyChangedSignal("Visible"):Connect(QueueUpdate),
+            Child:GetPropertyChangedSignal("LayoutOrder"):Connect(QueueUpdate),
+        }
+    end
+
+    for _, Child in ipairs(Holder1:GetChildren()) do
+        WatchHolderChild(Child)
+    end
+
+    Holder1.ChildAdded:Connect(function(Child)
+        WatchHolderChild(Child)
+        QueueUpdate()
     end)
 
-	task.defer(Update)
+    Holder1.ChildRemoved:Connect(function(Child)
+        DisconnectHolderChild(Child)
+        QueueUpdate()
+    end)
 
-	return Update
+    Layout1:GetPropertyChangedSignal("Padding"):Connect(QueueUpdate)
+
+    if Holder2 and Layout2 then
+        for _, Child in ipairs(Holder2:GetChildren()) do
+            WatchHolderChild(Child)
+        end
+
+        Holder2.ChildAdded:Connect(function(Child)
+            WatchHolderChild(Child)
+            QueueUpdate()
+        end)
+
+        Holder2.ChildRemoved:Connect(function(Child)
+            DisconnectHolderChild(Child)
+            QueueUpdate()
+        end)
+
+        Layout2:GetPropertyChangedSignal("Padding"):Connect(QueueUpdate)
+    end
+
+    local Camera = workspace.CurrentCamera
+
+    if Camera then
+        Camera:GetPropertyChangedSignal("ViewportSize"):Connect(QueueUpdate)
+    end
+
+    QueueUpdate()
+
+    return QueueUpdate
 end
 
 
@@ -3222,7 +3452,7 @@ function Library:Window(Data)
                 end)
 
                 local function GetDropdownOpenHeight()
-                    local ContentHeight = UIListLayout.AbsoluteContentSize.Y + 12
+                    local ContentHeight = MeasureListLayout(UIListLayout).Y + 12
                     local HolderHeight = math.clamp(ContentHeight, 0, MaxDropdownHeight)
                     local FrameHeight = SearchHeight + 1 + HolderHeight
 
@@ -5258,7 +5488,9 @@ function Example()
     })
 
     local Giant_Table = {"Hi", "Apple", "Orange", "d", "HALSDSLA", "NahBro","Hi", "Apple", "Orange", "d", "HALSDSLA", "NahBro","Hi", "Apple", "Orange", "d", "HALSDSLA", "NahBro","Hi", "Apple", "Orange", "d", "HALSDSLA", "NahBro","Hi", "Apple", "Orange", "d", "HALSDSLA", "NahBro",}
-    for i,v in pairs(game.CoreGui:GetChildren()) do
+    -- Do not enumerate CoreGui from a normal client thread.
+    -- Use PlayerGui instead so this test data does not trigger Plugin-capability errors.
+    for _, v in ipairs(MainParent:GetChildren()) do
         table.insert(Giant_Table, v.Name)
     end
 
@@ -5407,6 +5639,6 @@ function Example()
 
 end
 
---Example()
+Example()
 
 return Library
