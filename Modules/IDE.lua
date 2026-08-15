@@ -87,18 +87,18 @@ return function(MainFrame, Console_2)
 	end
 
 	local CodingHolder = frame:WaitForChild("CodingHolder")
-	
+
 	-- Kept in a separate ModuleScript to avoid Luau's 200-local-register
 	-- limit in this already-large IDE initializer.
 	local IDEWorkspace = 
 		RunService:IsStudio()
-	and
+		and
 		require(
 			script.Parent:WaitForChild(
 				"IDEWorkspace"
 			)
 		)
-	or loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDEWorkspace.lua"))()
+		or loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDEWorkspace.lua"))()
 
 	-- ============================================================
 	-- [03] CONFIGURATION / FEATURE FLAGS
@@ -6412,30 +6412,301 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- [38] EXECUTE BUTTON
+	-- [38] EXECUTE BUTTON / EDITOR RUNTIME DIAGNOSTICS
 	-- ============================================================
+	--
+	-- Compile the editor source with a dedicated chunk name. This makes
+	-- loadstring/runtime errors point to the user's code instead of a line
+	-- number inside this very large Potassium.IDE ModuleScript.
 
-	if Execute then
-		Execute.MouseButton1Click:Connect(
-			function()
+	do
+		local diagnostic =
+			CodingHolder:FindFirstChild(
+				"ExecutionDiagnostic"
+			)
 
-				local success, result =
-					pcall(
-						function()
-							return loadstring(
-								input.Text
-							)()
-						end
-					)
+		if not diagnostic then
+			diagnostic =
+				Instance.new("TextLabel")
 
-				if not success then
-					warn(
-						"[Potassium IDE] Execution error:",
-						result
-					)
-				end
-			end
+			diagnostic.Name =
+				"ExecutionDiagnostic"
+
+			diagnostic.Visible = false
+			diagnostic.AnchorPoint =
+				Vector2.new(0, 1)
+
+			diagnostic.Position =
+				UDim2.new(
+					0,
+					8,
+					1,
+					-45
+				)
+
+			diagnostic.Size =
+				UDim2.new(
+					1,
+					-16,
+					0,
+					34
+				)
+
+			diagnostic.BackgroundColor3 =
+				Color3.fromRGB(
+					58,
+					31,
+					34
+				)
+
+			diagnostic.BackgroundTransparency = 0.08
+			diagnostic.BorderSizePixel = 0
+
+			diagnostic.TextColor3 =
+				Color3.fromRGB(
+					255,
+					180,
+					185
+				)
+
+			diagnostic.TextXAlignment =
+				Enum.TextXAlignment.Left
+
+			diagnostic.TextYAlignment =
+				Enum.TextYAlignment.Center
+
+			diagnostic.TextWrapped = true
+			diagnostic.Font = Enum.Font.Code
+			diagnostic.TextSize = 12
+			diagnostic.ZIndex = 60
+			diagnostic.Parent = CodingHolder
+
+			local padding =
+				Instance.new("UIPadding")
+
+			padding.PaddingLeft =
+				UDim.new(0, 9)
+
+			padding.PaddingRight =
+				UDim.new(0, 9)
+
+			padding.Parent =
+				diagnostic
+
+			local corner =
+				Instance.new("UICorner")
+
+			corner.CornerRadius =
+				UDim.new(0, 4)
+
+			corner.Parent =
+				diagnostic
+		end
+
+		local function extractEditorLine(message)
+			message =
+				tostring(message or "")
+
+			local lineNumber =
+				message:match(
+					'%[string "PotassiumEditor"%]:(%d+):'
+				)
+
+			lineNumber =
+				lineNumber
+				or message:match(
+					"PotassiumEditor:(%d+):"
+				)
+
+			lineNumber =
+				lineNumber
+				or message:match(
+					"%[PotassiumEditor%]:(%d+):"
+				)
+
+			lineNumber =
+				lineNumber
+				or message:match(
+					'^.-%]:(%d+):'
+				)
+
+			return tonumber(lineNumber)
+		end
+
+		local function cleanExecutionMessage(message)
+			message =
+				tostring(
+					message
+					or "Unknown execution error"
+				)
+
+			message =
+				message:match("([^\n\r]+)")
+				or message
+
+			message =
+				message:gsub(
+					'^%[string "PotassiumEditor"%]:%d+:%s*',
+					""
+				)
+
+			message =
+				message:gsub(
+					"^PotassiumEditor:%d+:%s*",
+					""
+				)
+
+			message =
+				message:gsub(
+					"^%[PotassiumEditor%]:%d+:%s*",
+					""
+				)
+
+			return message
+		end
+
+		local function showExecutionError(
+			lineNumber,
+			message
 		)
+			lineNumber =
+				math.clamp(
+					tonumber(lineNumber)
+					or 1,
+					1,
+					math.max(
+						1,
+						#getLines(
+							input.Text
+						)
+					)
+				)
+
+			local cleanMessage =
+				cleanExecutionMessage(
+					message
+				)
+
+			diagnostic.Text =
+				"Line "
+				.. tostring(lineNumber)
+				.. ": "
+				.. cleanMessage
+
+			diagnostic.Visible = true
+
+			currentErrors =
+				findErrors(
+					input.Text
+				)
+
+			table.insert(
+				currentErrors,
+				{
+					line = lineNumber,
+					column = 1,
+					message =
+						"Execution: "
+						.. cleanMessage,
+				}
+			)
+
+			updateErrorUnderlines()
+
+			local lineStart =
+				getLineStart(
+					input.Text,
+					lineNumber
+				)
+
+			input.CursorPosition =
+				math.clamp(
+					lineStart,
+					1,
+					#input.Text + 1
+				)
+
+			input.SelectionStart =
+				input.CursorPosition
+
+			logicalCursorPosition =
+				input.CursorPosition
+
+			task.defer(function()
+				if input.Parent then
+					input:CaptureFocus()
+					ensureCursorVisible()
+					updateEditorCursor()
+				end
+			end)
+		end
+
+		local function clearExecutionDiagnostic()
+			diagnostic.Visible = false
+
+			currentErrors =
+				findErrors(
+					input.Text
+				)
+
+			updateErrorUnderlines()
+		end
+
+		if Execute then
+			Execute.MouseButton1Click:Connect(
+				function()
+					clearExecutionDiagnostic()
+
+					local compiled,
+					compileError =
+						loadstring(
+							input.Text,
+							"PotassiumEditor"
+						)
+
+					if not compiled then
+						showExecutionError(
+							extractEditorLine(
+								compileError
+							),
+							compileError
+						)
+
+						return
+					end
+
+					local success,
+					result =
+						xpcall(
+							compiled,
+							function(err)
+								return tostring(err)
+							end
+						)
+
+					if not success then
+						showExecutionError(
+							extractEditorLine(
+								result
+							),
+							result
+						)
+
+						return
+					end
+
+					diagnostic.Visible = false
+				end
+			)
+		end
+
+		input:GetPropertyChangedSignal(
+			"Text"
+		):Connect(function()
+			if diagnostic.Visible then
+				diagnostic.Visible = false
+			end
+		end)
 	end
 
 	-- ============================================================
@@ -7788,4 +8059,3 @@ return function(MainFrame, Console_2)
 		"[Potassium IDE] Initialized successfully."
 	)
 end
-	
