@@ -23,8 +23,14 @@ return function(MainFrame, Console_2)
 	local UserInputService =
 		game:GetService("UserInputService")
 
+	local Players =
+		game:GetService("Players")
+
 	local CollectionService =
 		game:GetService("CollectionService")
+
+	local GuiService =
+		game:GetService("GuiService")
 
 	-- ============================================================
 	-- ROOT
@@ -141,7 +147,7 @@ return function(MainFrame, Console_2)
 			)
 
 		if not ExplorerWindow then
-			ExplorerWindow = Instance.new("Frame")
+			ExplorerWindow = Instance.new("ImageButton")
 			ExplorerWindow.Name = "PotassiumExplorer"
 			ExplorerWindow.AnchorPoint = Vector2.new(0.5, 0.5)
 			ExplorerWindow.Position = UDim2.new(0.62, 0, 0.5, 0)
@@ -152,6 +158,8 @@ return function(MainFrame, Console_2)
 			ExplorerWindow.Active = true
 			ExplorerWindow.ZIndex = 4
 			ExplorerWindow.Parent = explorerParent
+			ExplorerWindow.ImageTransparency = 1
+			ExplorerWindow.AutoButtonColor = false
 
 			local windowCorner = Instance.new("UICorner")
 			windowCorner.CornerRadius = UDim.new(0, 7)
@@ -242,8 +250,65 @@ return function(MainFrame, Console_2)
 
 			local title = newLabel(titleBar, "Title", "Explorer")
 			title.Position = UDim2.fromOffset(12, 0)
-			title.Size = UDim2.new(1, -110, 1, 0)
+			title.Size = UDim2.new(1, -235, 1, 0)
 			title.TextSize = 14
+			
+			local titleBarCorner = Instance.new("UICorner")
+			titleBarCorner.Parent = titleBar
+			titleBarCorner.BottomLeftRadius = UDim.new(0, 0)
+			titleBarCorner.BottomRightRadius = UDim.new(0, 0)
+
+			local backButton =
+				newButton(
+					titleBar,
+					"SelectionBack",
+					"←"
+				)
+			backButton.AnchorPoint =
+				Vector2.new(1, 0.5)
+			backButton.Position =
+				UDim2.new(1, -178, 0.5, 0)
+			backButton.Size =
+				UDim2.fromOffset(28, 26)
+
+			local forwardButton =
+				newButton(
+					titleBar,
+					"SelectionForward",
+					"→"
+				)
+			forwardButton.AnchorPoint =
+				Vector2.new(1, 0.5)
+			forwardButton.Position =
+				UDim2.new(1, -144, 0.5, 0)
+			forwardButton.Size =
+				UDim2.fromOffset(28, 26)
+
+			local locateButton =
+				newButton(
+					titleBar,
+					"LocateSelection",
+					"◎"
+				)
+			locateButton.AnchorPoint =
+				Vector2.new(1, 0.5)
+			locateButton.Position =
+				UDim2.new(1, -110, 0.5, 0)
+			locateButton.Size =
+				UDim2.fromOffset(28, 26)
+
+			local settingsButton =
+				newButton(
+					titleBar,
+					"ExplorerSettings",
+					"⚙"
+				)
+			settingsButton.AnchorPoint =
+				Vector2.new(1, 0.5)
+			settingsButton.Position =
+				UDim2.new(1, -76, 0.5, 0)
+			settingsButton.Size =
+				UDim2.fromOffset(28, 26)
 
 			local refreshButton = newButton(titleBar, "Refresh", "↻")
 			refreshButton.AnchorPoint = Vector2.new(1, 0.5)
@@ -443,6 +508,38 @@ return function(MainFrame, Console_2)
 		local draggingTreeInstance = nil
 		local dragDropTarget = nil
 		local TREE_DRAG_THRESHOLD = 7
+
+		local ExplorerSettings = {
+			WorldPick = false,
+			AutoExpandSelection = true,
+			AutoScrollSelection = true,
+			HighlightWorldSelection = true,
+			ShowClassNames = true,
+			LiveRefresh = true,
+		}
+
+		local selectionHistory = {}
+		local selectionHistoryIndex = 0
+		local applyingHistorySelection = false
+
+		local worldSelectionHighlight =
+			ExplorerWindow:FindFirstChild(
+				"WorldSelectionHighlight"
+			)
+
+		if not worldSelectionHighlight then
+			worldSelectionHighlight =
+				Instance.new("Highlight")
+			worldSelectionHighlight.Name =
+				"WorldSelectionHighlight"
+			worldSelectionHighlight.FillTransparency = 0.8
+			worldSelectionHighlight.OutlineTransparency = 0
+			worldSelectionHighlight.DepthMode =
+				Enum.HighlightDepthMode.AlwaysOnTop
+			worldSelectionHighlight.Enabled = false
+			worldSelectionHighlight.Parent =
+				ExplorerWindow
+		end
 
 		local MAX_TREE_ROWS = 1800
 		local MAX_SEARCH_RESULTS = 300
@@ -1254,6 +1351,8 @@ return function(MainFrame, Console_2)
 		local rebuildTree
 		local rebuildProperties
 		local refreshTreeSelectionVisuals
+		local revealSelectionInTree
+		local selectInstanceAdvanced
 
 		-- ============================================================
 		-- EXPLORER ICONS
@@ -1330,6 +1429,227 @@ return function(MainFrame, Console_2)
 			return instance.ClassName:sub(1, 1),
 				Color3.fromRGB(125, 135, 150)
 		end
+
+		-- ============================================================
+		-- EXPLORER SETTINGS
+		-- ============================================================
+
+		local explorerSettingsPopup =
+			ExplorerWindow:FindFirstChild(
+				"ExplorerSettingsPopup"
+			)
+
+		if not explorerSettingsPopup then
+			explorerSettingsPopup =
+				Instance.new("Frame")
+			explorerSettingsPopup.Name =
+				"ExplorerSettingsPopup"
+			explorerSettingsPopup.AnchorPoint =
+				Vector2.new(1, 0)
+			explorerSettingsPopup.Position =
+				UDim2.new(1, -8, 0, 40)
+			explorerSettingsPopup.Size =
+				UDim2.fromOffset(270, 236)
+			explorerSettingsPopup.BackgroundColor3 =
+				TOP_BG
+			explorerSettingsPopup.BorderSizePixel = 0
+			explorerSettingsPopup.Visible = false
+			explorerSettingsPopup.ZIndex = 70
+			explorerSettingsPopup.Parent =
+				ExplorerWindow
+
+			local corner =
+				Instance.new("UICorner")
+			corner.CornerRadius =
+				UDim.new(0, 6)
+			corner.Parent =
+				explorerSettingsPopup
+
+			local stroke =
+				Instance.new("UIStroke")
+			stroke.Color = BORDER
+			stroke.Parent =
+				explorerSettingsPopup
+		end
+
+		local settingsTitle =
+			explorerSettingsPopup:FindFirstChild(
+				"Title"
+			)
+
+		if not settingsTitle then
+			settingsTitle =
+				newLabel(
+					explorerSettingsPopup,
+					"Title",
+					"Explorer Settings"
+				)
+			settingsTitle.Position =
+				UDim2.fromOffset(10, 5)
+			settingsTitle.Size =
+				UDim2.new(1, -20, 0, 24)
+			settingsTitle.TextSize = 14
+			settingsTitle.ZIndex = 71
+		end
+
+		local settingsToggleButtons = {}
+
+		local function updateSettingsToggleVisual(
+			button,
+			enabled
+		)
+			button.Text =
+				enabled and "ON" or "OFF"
+
+			button.TextColor3 =
+				enabled
+				and Color3.fromRGB(
+					120,
+					220,
+					160
+				)
+				or MUTED
+		end
+
+		local function createSettingsToggle(
+			name,
+			labelText,
+			y,
+			settingName
+		)
+			local label =
+				explorerSettingsPopup:FindFirstChild(
+					name .. "Label"
+				)
+
+			if not label then
+				label =
+					newLabel(
+						explorerSettingsPopup,
+						name .. "Label",
+						labelText
+					)
+				label.Position =
+					UDim2.fromOffset(
+						10,
+						y
+					)
+				label.Size =
+					UDim2.new(
+						1,
+						-82,
+						0,
+						28
+					)
+				label.ZIndex = 71
+			end
+
+			local button =
+				explorerSettingsPopup:FindFirstChild(
+					name
+				)
+
+			if not button then
+				button =
+					newButton(
+						explorerSettingsPopup,
+						name,
+						"OFF"
+					)
+				button.AnchorPoint =
+					Vector2.new(1, 0)
+				button.Position =
+					UDim2.new(
+						1,
+						-10,
+						0,
+						y + 2
+					)
+				button.Size =
+					UDim2.fromOffset(
+						58,
+						24
+					)
+				button.ZIndex = 72
+
+				button.MouseButton1Click:Connect(function()
+					ExplorerSettings[settingName] =
+						not ExplorerSettings[
+					settingName
+					]
+
+					updateSettingsToggleVisual(
+						button,
+						ExplorerSettings[
+						settingName
+						]
+					)
+
+					if settingName
+						== "ShowClassNames"
+					then
+						rebuildTree()
+					elseif settingName
+						== "HighlightWorldSelection"
+					then
+						if refreshTreeSelectionVisuals then
+							refreshTreeSelectionVisuals()
+						end
+					end
+				end)
+			end
+
+			settingsToggleButtons[
+			settingName
+			] = button
+
+			updateSettingsToggleVisual(
+				button,
+				ExplorerSettings[settingName]
+			)
+		end
+
+		createSettingsToggle(
+			"WorldPick",
+			"Pick exact 3D part from world",
+			34,
+			"WorldPick"
+		)
+
+		createSettingsToggle(
+			"AutoExpandSelection",
+			"Auto-expand selected path",
+			66,
+			"AutoExpandSelection"
+		)
+
+		createSettingsToggle(
+			"AutoScrollSelection",
+			"Auto-scroll to selected item",
+			98,
+			"AutoScrollSelection"
+		)
+
+		createSettingsToggle(
+			"HighlightWorldSelection",
+			"Highlight selected 3D object",
+			130,
+			"HighlightWorldSelection"
+		)
+
+		createSettingsToggle(
+			"ShowClassNames",
+			"Show <ClassName> in tree",
+			162,
+			"ShowClassNames"
+		)
+
+		createSettingsToggle(
+			"LiveRefresh",
+			"Live hierarchy refresh",
+			194,
+			"LiveRefresh"
+		)
 
 		-- ============================================================
 		-- PATH / CLIPBOARD HELPERS
@@ -1527,7 +1847,7 @@ return function(MainFrame, Console_2)
 			contextMenu.Name =
 				"ExplorerContextMenu"
 			contextMenu.Size =
-				UDim2.fromOffset(244, 100)
+				UDim2.fromOffset(258, 100)
 			contextMenu.BackgroundColor3 =
 				Color3.fromRGB(32, 32, 32)
 			contextMenu.BorderSizePixel = 0
@@ -1665,25 +1985,45 @@ return function(MainFrame, Console_2)
 				screenPosition.Y
 			- ExplorerWindow.AbsolutePosition.Y
 
+			-- math.clamp requires max >= min.
+			--
+			-- The context menu can now become taller than the Explorer
+			-- window because of the extra spatial/world actions. In that
+			-- case the old code produced maxY = 0 while still using a
+			-- minimum of 4, causing:
+			--
+			--     invalid argument #3 to 'clamp'
+			--
+			-- Keep the maximum at least equal to the edge padding.
+			local edgePadding = 4
+
 			local maxX =
 				math.max(
-					0,
+					edgePadding,
 					ExplorerWindow.AbsoluteSize.X
 					- gui.AbsoluteSize.X
-					- 4
+					- edgePadding
 				)
 
 			local maxY =
 				math.max(
-					0,
+					edgePadding,
 					ExplorerWindow.AbsoluteSize.Y
 					- gui.AbsoluteSize.Y
-					- 4
+					- edgePadding
 				)
 
 			return UDim2.fromOffset(
-				math.clamp(localX, 4, maxX),
-				math.clamp(localY, 4, maxY)
+				math.clamp(
+					localX,
+					edgePadding,
+					maxX
+				),
+				math.clamp(
+					localY,
+					edgePadding,
+					maxY
+				)
 			)
 		end
 
@@ -2211,6 +2551,316 @@ return function(MainFrame, Console_2)
 			end
 		end
 
+		-- ============================================================
+		-- WORLD / SPATIAL CONTEXT ACTIONS
+		-- ============================================================
+
+		local function getInstanceWorldCFrame(instance)
+			if not instance then
+				return nil
+			end
+
+			if instance:IsA("BasePart") then
+				return instance.CFrame
+			end
+
+			if instance:IsA("Attachment") then
+				return instance.WorldCFrame
+			end
+
+			if instance:IsA("Model") then
+				local ok, pivot =
+					pcall(function()
+						return instance:GetPivot()
+					end)
+
+				if ok then
+					return pivot
+				end
+			end
+
+			local partAncestor =
+				instance:FindFirstAncestorWhichIsA(
+					"BasePart"
+				)
+
+			if partAncestor then
+				return partAncestor.CFrame
+			end
+
+			local modelAncestor =
+				instance:FindFirstAncestorWhichIsA(
+					"Model"
+				)
+
+			if modelAncestor then
+				local ok, pivot =
+					pcall(function()
+						return modelAncestor:GetPivot()
+					end)
+
+				if ok then
+					return pivot
+				end
+			end
+
+			return nil
+		end
+
+		local function getInstanceWorldSize(instance)
+			if not instance then
+				return Vector3.zero
+			end
+
+			if instance:IsA("BasePart") then
+				return instance.Size
+			end
+
+			if instance:IsA("Model") then
+				local ok, size =
+					pcall(function()
+						local _, modelSize =
+						instance:GetBoundingBox()
+
+						return modelSize
+					end)
+
+				if ok then
+					return size
+				end
+			end
+
+			return Vector3.zero
+		end
+
+		local function getLocalCharacter()
+			local localPlayer =
+				Players.LocalPlayer
+
+			if not localPlayer then
+				return nil
+			end
+
+			return localPlayer.Character
+		end
+
+		local function teleportCharacterToInstance(instance)
+			local character =
+				getLocalCharacter()
+
+			if not character then
+				return false
+			end
+
+			local targetCFrame =
+				getInstanceWorldCFrame(
+					instance
+				)
+
+			if not targetCFrame then
+				return false
+			end
+
+			local targetSize =
+				getInstanceWorldSize(
+					instance
+				)
+
+			local verticalOffset =
+				math.max(
+					4,
+					(targetSize.Y * 0.5) + 3
+				)
+
+			local destination =
+				CFrame.new(
+					targetCFrame.Position
+					+ Vector3.new(
+						0,
+						verticalOffset,
+						0
+					)
+				)
+
+			local ok =
+				pcall(function()
+					character:PivotTo(
+						destination
+					)
+				end)
+
+			return ok
+		end
+
+		local function moveInstanceToCharacter(instance)
+			local character =
+				getLocalCharacter()
+
+			if not character then
+				return false
+			end
+
+			local characterPivot =
+				character:GetPivot()
+
+			local destination =
+				characterPivot
+				* CFrame.new(
+					0,
+					0,
+					-6
+				)
+
+			if instance:IsA("BasePart") then
+				return pcall(function()
+					instance.CFrame =
+						destination
+				end)
+			end
+
+			if instance:IsA("Model") then
+				return pcall(function()
+					instance:PivotTo(
+						destination
+					)
+				end)
+			end
+
+			return false
+		end
+
+		local function focusCameraOnInstance(instance)
+			local camera =
+				workspace.CurrentCamera
+
+			local targetCFrame =
+				getInstanceWorldCFrame(
+					instance
+				)
+
+			if not camera
+				or not targetCFrame
+			then
+				return false
+			end
+
+			local targetSize =
+				getInstanceWorldSize(
+					instance
+				)
+
+			local radius =
+				math.max(
+					8,
+					targetSize.Magnitude
+					* 1.2
+				)
+
+			local targetPosition =
+				targetCFrame.Position
+
+			local cameraPosition =
+				targetPosition
+				+ Vector3.new(
+					radius,
+					radius * 0.65,
+					radius
+				)
+
+			-- This is a one-shot camera focus. Roblox's normal camera
+			-- controller may continue controlling the camera afterwards.
+			return pcall(function()
+				camera.CFrame =
+					CFrame.lookAt(
+						cameraPosition,
+						targetPosition
+					)
+
+				camera.Focus =
+					CFrame.new(
+						targetPosition
+					)
+			end)
+		end
+
+		local function copyWorldPosition(instance)
+			local targetCFrame =
+				getInstanceWorldCFrame(
+					instance
+				)
+
+			if not targetCFrame then
+				return
+			end
+
+			local p =
+				targetCFrame.Position
+
+			copyText(
+				string.format(
+					"Vector3.new(%.6f, %.6f, %.6f)",
+					p.X,
+					p.Y,
+					p.Z
+				)
+			)
+		end
+
+		local function copyWorldCFrame(instance)
+			local targetCFrame =
+				getInstanceWorldCFrame(
+					instance
+				)
+
+			if not targetCFrame then
+				return
+			end
+
+			local components = {
+				targetCFrame:GetComponents(),
+			}
+
+			for index, value in ipairs(
+				components
+				) do
+				components[index] =
+					string.format(
+						"%.6f",
+						value
+					)
+			end
+
+			copyText(
+				"CFrame.new("
+					.. table.concat(
+						components,
+						", "
+					)
+					.. ")"
+			)
+		end
+
+		local function selectContainingModel(instance)
+			if not instance then
+				return
+			end
+
+			local model =
+				instance:IsA("Model")
+				and instance
+				or instance:FindFirstAncestorWhichIsA(
+					"Model"
+				)
+
+			if model then
+				selectInstanceAdvanced(
+					model,
+					true,
+					true
+				)
+			end
+		end
+
 		showContextMenu = function(
 			instance,
 			screenPosition
@@ -2242,6 +2892,137 @@ return function(MainFrame, Console_2)
 					true,
 					ACCENT
 				)
+
+				y = addContextSeparator(y)
+			end
+
+			local worldCFrame =
+				getInstanceWorldCFrame(
+					instance
+				)
+
+			if worldCFrame then
+				y = addContextButton(
+					y,
+					"Teleport To",
+					function()
+						teleportCharacterToInstance(
+							instance
+						)
+
+						hideContextMenu()
+					end,
+					true,
+					Color3.fromRGB(
+						120,
+						220,
+						160
+					)
+				)
+
+				y = addContextButton(
+					y,
+					"Focus Camera",
+					function()
+						focusCameraOnInstance(
+							instance
+						)
+
+						hideContextMenu()
+					end,
+					true
+				)
+
+				y = addContextButton(
+					y,
+					"Copy Position",
+					function()
+						copyWorldPosition(
+							instance
+						)
+
+						hideContextMenu()
+					end,
+					true
+				)
+
+				y = addContextButton(
+					y,
+					"Copy CFrame",
+					function()
+						copyWorldCFrame(
+							instance
+						)
+
+						hideContextMenu()
+					end,
+					true
+				)
+
+				if instance:IsA("BasePart")
+					or instance:IsA("Model")
+				then
+					y = addContextButton(
+						y,
+						"Bring To Player",
+						function()
+							moveInstanceToCharacter(
+								instance
+							)
+
+							hideContextMenu()
+							rebuildProperties()
+						end,
+						true
+					)
+				end
+
+				local containingModel =
+					instance:IsA("Model")
+					and instance
+					or instance:FindFirstAncestorWhichIsA(
+						"Model"
+					)
+
+				if containingModel
+					and containingModel ~= instance
+				then
+					y = addContextButton(
+						y,
+						"Select Model",
+						function()
+							hideContextMenu()
+							selectContainingModel(
+								instance
+							)
+						end,
+						true
+					)
+				end
+
+				if instance:IsA("Model")
+					and instance.PrimaryPart
+				then
+					y = addContextButton(
+						y,
+						"Select PrimaryPart",
+						function()
+							local primary =
+								instance.PrimaryPart
+
+							hideContextMenu()
+
+							if primary then
+								selectInstanceAdvanced(
+									primary,
+									true,
+									true
+								)
+							end
+						end,
+						true
+					)
+				end
 
 				y = addContextSeparator(y)
 			end
@@ -2285,6 +3066,48 @@ return function(MainFrame, Console_2)
 				"Copy ClassName",
 				function()
 					copyText(instance.ClassName)
+					hideContextMenu()
+				end,
+				true
+			)
+
+			y = addContextButton(
+				y,
+				"Copy Debug Info",
+				function()
+					local lines = {
+						"Name: " .. instance.Name,
+						"ClassName: " .. instance.ClassName,
+						"Path: " .. getPath(instance),
+						"Luau: " .. getLuaPath(instance),
+					}
+
+					local cf =
+						getInstanceWorldCFrame(
+							instance
+						)
+
+					if cf then
+						local p = cf.Position
+
+						table.insert(
+							lines,
+							string.format(
+								"Position: %.3f, %.3f, %.3f",
+								p.X,
+								p.Y,
+								p.Z
+							)
+						)
+					end
+
+					copyText(
+						table.concat(
+							lines,
+							"\n"
+						)
+					)
+
 					hideContextMenu()
 				end,
 				true
@@ -2567,6 +3390,31 @@ return function(MainFrame, Console_2)
 					selectedInstance
 			end
 
+			if worldSelectionHighlight then
+				local adornee = nil
+
+				if ExplorerSettings.HighlightWorldSelection
+					and selectedInstance
+				then
+					if selectedInstance:IsA("BasePart")
+						or selectedInstance:IsA("Model")
+					then
+						adornee = selectedInstance
+					else
+						adornee =
+							selectedInstance:FindFirstAncestorOfClass(
+								"Model"
+							)
+					end
+				end
+
+				worldSelectionHighlight.Adornee =
+					adornee
+
+				worldSelectionHighlight.Enabled =
+					adornee ~= nil
+			end
+
 			for _, row in ipairs(treeRows) do
 				if row and row.Parent then
 					local rowInstance =
@@ -2604,7 +3452,65 @@ return function(MainFrame, Console_2)
 			end
 		end
 
-		local function selectInstance(instance)
+		local function addSelectionToHistory(instance)
+			if applyingHistorySelection
+				or not instance
+			then
+				return
+			end
+
+			if selectionHistory[
+				selectionHistoryIndex
+				] == instance
+			then
+				return
+			end
+
+			while #selectionHistory
+				> selectionHistoryIndex
+			do
+				table.remove(
+					selectionHistory
+				)
+			end
+
+			table.insert(
+				selectionHistory,
+				instance
+			)
+
+			if #selectionHistory > 50 then
+				table.remove(
+					selectionHistory,
+					1
+				)
+			end
+
+			selectionHistoryIndex =
+				#selectionHistory
+		end
+
+		local function expandAncestors(instance)
+			if not instance then
+				return
+			end
+
+			local current =
+				instance.Parent
+
+			while current
+				and current ~= game
+			do
+				expanded[current] = true
+				current = current.Parent
+			end
+		end
+
+		selectInstanceAdvanced = function(
+			instance,
+			revealInTree,
+			addHistory
+		)
 			selectedInstance = instance
 
 			if instance then
@@ -2617,11 +3523,41 @@ return function(MainFrame, Console_2)
 					"No instance selected"
 			end
 
-			-- Do NOT rebuild the tree here. Rebuilding destroys the row
-			-- button between mouse-down and mouse-up, which is why clicks
-			-- and double-clicks were getting lost.
-			refreshTreeSelectionVisuals()
+			if addHistory ~= false then
+				addSelectionToHistory(
+					instance
+				)
+			end
+
+			if revealInTree
+				and instance
+			then
+				if ExplorerSettings.AutoExpandSelection then
+					expandAncestors(
+						instance
+					)
+				end
+
+				rebuildTree()
+
+				if revealSelectionInTree then
+					task.defer(
+						revealSelectionInTree
+					)
+				end
+			else
+				refreshTreeSelectionVisuals()
+			end
+
 			rebuildProperties()
+		end
+
+		local function selectInstance(instance)
+			selectInstanceAdvanced(
+				instance,
+				false,
+				true
+			)
 		end
 
 		-- ============================================================
@@ -3137,10 +4073,14 @@ return function(MainFrame, Console_2)
 				Enum.TextTruncate.AtEnd
 
 			nameLabel.Text =
-				instance.Name
-				.. "  <"
-				.. instance.ClassName
-				.. ">"
+				ExplorerSettings.ShowClassNames
+				and (
+					instance.Name
+					.. "  <"
+					.. instance.ClassName
+					.. ">"
+				)
+				or instance.Name
 
 			nameLabel.TextColor3 =
 				instance == selectedInstance
@@ -3157,16 +4097,11 @@ return function(MainFrame, Console_2)
 			-- Clicking the row only selects/highlights it.
 			-- Expansion is handled exclusively by the arrow TextButton.
 			row.MouseButton1Down:Connect(function(x, y)
-				selectedInstance =
-					instance
-
-				selectionInfo.Text =
-					instance.ClassName
-					.. "  •  "
-					.. getPath(instance)
-
-				refreshTreeSelectionVisuals()
-				rebuildProperties()
+				selectInstanceAdvanced(
+					instance,
+					false,
+					true
+				)
 
 				-- Services directly under game are protected from dragging.
 				if instance.Parent ~= game then
@@ -3541,6 +4476,77 @@ return function(MainFrame, Console_2)
 			end
 		end
 
+		revealSelectionInTree = function()
+			if not selectedInstance then
+				return
+			end
+
+			local selectedRow = nil
+
+			for _, row in ipairs(
+				treeRows
+				) do
+				if treeRowInstances[row]
+					== selectedInstance
+				then
+					selectedRow = row
+					break
+				end
+			end
+
+			if not selectedRow then
+				return
+			end
+
+			refreshTreeSelectionVisuals()
+
+			if not ExplorerSettings.AutoScrollSelection then
+				return
+			end
+
+			local rowTop =
+				selectedRow.Position.Y.Offset
+
+			local rowBottom =
+				rowTop
+				+ selectedRow.AbsoluteSize.Y
+
+			local viewportTop =
+				treeScroll.CanvasPosition.Y
+
+			local viewportBottom =
+				viewportTop
+				+ treeScroll.AbsoluteSize.Y
+
+			local targetY =
+				viewportTop
+
+			if rowTop < viewportTop then
+				targetY = rowTop
+			elseif rowBottom > viewportBottom then
+				targetY =
+					rowBottom
+				- treeScroll.AbsoluteSize.Y
+			end
+
+			local maxY =
+				math.max(
+					0,
+					treeScroll.CanvasSize.Y.Offset
+					- treeScroll.AbsoluteSize.Y
+				)
+
+			treeScroll.CanvasPosition =
+				Vector2.new(
+					treeScroll.CanvasPosition.X,
+					math.clamp(
+						targetY,
+						0,
+						maxY
+					)
+				)
+		end
+
 		rebuildProperties = function()
 			clearRows(propertyRows)
 
@@ -3842,6 +4848,208 @@ return function(MainFrame, Console_2)
 			end
 		end)
 
+		local function pointInsideGuiObject(
+			guiObject,
+			point
+		)
+			if not guiObject
+				or not guiObject:IsA("GuiObject")
+				or not guiObject.Visible
+			then
+				return false
+			end
+
+			local position =
+				guiObject.AbsolutePosition
+
+			local size =
+				guiObject.AbsoluteSize
+
+			return point.X >= position.X
+				and point.X <= position.X + size.X
+				and point.Y >= position.Y
+				and point.Y <= position.Y + size.Y
+		end
+
+		local function pointOverPotassiumGui(point)
+			-- GetGuiObjectsAtPosition is a BasePlayerGui method,
+			-- so call it on PlayerGui instead of GuiService.
+			local localPlayer =
+				Players.LocalPlayer
+
+			local playerGui =
+				localPlayer
+				and localPlayer:FindFirstChildOfClass(
+					"PlayerGui"
+				)
+
+			if playerGui then
+				local ok, objects =
+					pcall(function()
+						return playerGui:GetGuiObjectsAtPosition(
+							point.X,
+							point.Y
+						)
+					end)
+
+				if ok and objects then
+					for _, object in ipairs(objects) do
+						if object:IsDescendantOf(
+							ExplorerWindow
+							)
+								or object:IsDescendantOf(
+									MainFrame
+								)
+								or (
+									Console_2
+									and object:IsDescendantOf(
+										Console_2
+									)
+								)
+						then
+							return true
+						end
+					end
+
+					return false
+				end
+			end
+
+			-- Fallback if the Potassium UI is parented somewhere unusual:
+			-- directly test the visible window rectangles.
+			if pointInsideGuiObject(
+				ExplorerWindow,
+				point
+				) then
+				return true
+			end
+
+			if pointInsideGuiObject(
+				MainFrame,
+				point
+				) then
+				return true
+			end
+
+			if Console_2
+				and pointInsideGuiObject(
+					Console_2,
+					point
+				)
+			then
+				return true
+			end
+
+			return false
+		end
+
+		local function pickWorldInstanceFromMouse(
+			screenPoint
+		)
+			local camera =
+				workspace.CurrentCamera
+
+			if not camera then
+				return nil
+			end
+
+			-- InputObject.Position is a SCREEN coordinate. Use
+			-- ScreenPointToRay so Roblox handles the top-bar / GUI inset
+			-- itself. The old code subtracted GuiInset manually and then
+			-- called ViewportPointToRay, which could shift the ray enough
+			-- to miss a small Part and hit the Baseplate behind it.
+			local ray =
+				camera:ScreenPointToRay(
+					screenPoint.X,
+					screenPoint.Y,
+					0
+				)
+
+			local params =
+				RaycastParams.new()
+
+			params.FilterType =
+				Enum.RaycastFilterType.Exclude
+
+			local excluded = {}
+
+			local localPlayer =
+				Players.LocalPlayer
+
+			if localPlayer
+				and localPlayer.Character
+			then
+				table.insert(
+					excluded,
+					localPlayer.Character
+				)
+			end
+
+			-- Do not let Potassium's own 3D selection Highlight affect
+			-- anything indirectly if its Adornee happens to move.
+			params.FilterDescendantsInstances =
+				excluded
+
+			params.IgnoreWater = false
+
+			local result =
+				workspace:Raycast(
+					ray.Origin,
+					ray.Direction * 10000,
+					params
+				)
+
+			if not result then
+				return nil
+			end
+
+			-- Always return the exact BasePart hit by the ray. Do not walk
+			-- up to its Model/ancestor; the Explorer can reveal that exact
+			-- Part in the hierarchy.
+			return result.Instance
+		end
+
+		UserInputService.InputBegan:Connect(function(
+			inputObject,
+			gameProcessed
+		)
+			if not ExplorerWindow.Visible
+				or not ExplorerSettings.WorldPick
+				or gameProcessed
+				or inputObject.UserInputType
+				~= Enum.UserInputType.MouseButton1
+			then
+				return
+			end
+
+			local point =
+				Vector2.new(
+					inputObject.Position.X,
+					inputObject.Position.Y
+				)
+
+			if pointOverPotassiumGui(
+				point
+				) then
+				return
+			end
+
+			local picked =
+				pickWorldInstanceFromMouse(
+					point
+				)
+
+			if not picked then
+				return
+			end
+
+			selectInstanceAdvanced(
+				picked,
+				true,
+				true
+			)
+		end)
+
 		UserInputService.InputBegan:Connect(function(inputObject)
 			if not contextMenu.Visible
 				and not insertMenu.Visible
@@ -3872,6 +5080,88 @@ return function(MainFrame, Console_2)
 			hideContextMenu()
 		end)
 
+		UserInputService.InputBegan:Connect(function(
+			inputObject,
+			gameProcessed
+		)
+			if gameProcessed
+				or not ExplorerWindow.Visible
+			then
+				return
+			end
+
+			local focused =
+				UserInputService:GetFocusedTextBox()
+
+			if focused then
+				return
+			end
+
+			local controlDown =
+				UserInputService:IsKeyDown(
+					Enum.KeyCode.LeftControl
+				)
+				or UserInputService:IsKeyDown(
+					Enum.KeyCode.RightControl
+				)
+
+			if controlDown
+				and inputObject.KeyCode
+				== Enum.KeyCode.F
+			then
+				treeSearch:CaptureFocus()
+				return
+			end
+
+			if selectedInstance
+				and inputObject.KeyCode
+				== Enum.KeyCode.F2
+			then
+				showRenameDialog(
+					selectedInstance
+				)
+				return
+			end
+
+			if controlDown
+				and selectedInstance
+				and inputObject.KeyCode
+				== Enum.KeyCode.D
+			then
+				local parent =
+					selectedInstance.Parent
+
+				if parent
+					and parent ~= game
+				then
+					local ok, clone =
+						pcall(function()
+							local duplicate =
+							selectedInstance:Clone()
+
+							duplicate.Name =
+							selectedInstance.Name
+							.. " Copy"
+
+							duplicate.Parent =
+							parent
+
+							return duplicate
+						end)
+
+					if ok and clone then
+						expanded[parent] = true
+
+						selectInstanceAdvanced(
+							clone,
+							true,
+							true
+						)
+					end
+				end
+			end
+		end)
+
 		UserInputService.InputEnded:Connect(function(inputObject)
 			if inputObject.UserInputType
 				== Enum.UserInputType.MouseButton1
@@ -3888,12 +5178,120 @@ return function(MainFrame, Console_2)
 			end
 		end)
 
+		local settingsButton =
+			titleBar:FindFirstChild(
+				"ExplorerSettings"
+			)
+
+		if settingsButton then
+			settingsButton.MouseButton1Click:Connect(function()
+				explorerSettingsPopup.Visible =
+					not explorerSettingsPopup.Visible
+
+				hideContextMenu()
+			end)
+		end
+
+		local locateButton =
+			titleBar:FindFirstChild(
+				"LocateSelection"
+			)
+
+		if locateButton then
+			locateButton.MouseButton1Click:Connect(function()
+				if not selectedInstance then
+					return
+				end
+
+				expandAncestors(
+					selectedInstance
+				)
+
+				rebuildTree()
+
+				task.defer(
+					revealSelectionInTree
+				)
+			end)
+		end
+
+		local backButton =
+			titleBar:FindFirstChild(
+				"SelectionBack"
+			)
+
+		if backButton then
+			backButton.MouseButton1Click:Connect(function()
+				if selectionHistoryIndex <= 1 then
+					return
+				end
+
+				selectionHistoryIndex -= 1
+
+				local target =
+					selectionHistory[
+				selectionHistoryIndex
+				]
+
+				if target
+					and target.Parent
+				then
+					applyingHistorySelection = true
+
+					selectInstanceAdvanced(
+						target,
+						true,
+						false
+					)
+
+					applyingHistorySelection = false
+				end
+			end)
+		end
+
+		local forwardButton =
+			titleBar:FindFirstChild(
+				"SelectionForward"
+			)
+
+		if forwardButton then
+			forwardButton.MouseButton1Click:Connect(function()
+				if selectionHistoryIndex
+					>= #selectionHistory
+				then
+					return
+				end
+
+				selectionHistoryIndex += 1
+
+				local target =
+					selectionHistory[
+				selectionHistoryIndex
+				]
+
+				if target
+					and target.Parent
+				then
+					applyingHistorySelection = true
+
+					selectInstanceAdvanced(
+						target,
+						true,
+						false
+					)
+
+					applyingHistorySelection = false
+				end
+			end)
+		end
+
 		local closeButton =
 			titleBar:FindFirstChild("Close")
 
 		if closeButton then
 			closeButton.MouseButton1Click:Connect(function()
 				hideContextMenu()
+				explorerSettingsPopup.Visible = false
 				ExplorerWindow.Visible = false
 			end)
 		end
@@ -3926,7 +5324,9 @@ return function(MainFrame, Console_2)
 		end
 
 		game.DescendantAdded:Connect(function(descendant)
-			if not ExplorerWindow.Visible then
+			if not ExplorerSettings.LiveRefresh
+				or not ExplorerWindow.Visible
+			then
 				return
 			end
 
@@ -3946,7 +5346,9 @@ return function(MainFrame, Console_2)
 				schedulePropertyRefresh(0)
 			end
 
-			if ExplorerWindow.Visible then
+			if ExplorerSettings.LiveRefresh
+				and ExplorerWindow.Visible
+			then
 				scheduleTreeRefresh(0.08)
 			end
 		end)
