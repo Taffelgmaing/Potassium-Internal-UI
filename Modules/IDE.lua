@@ -71,7 +71,6 @@ return function(MainFrame, Console_2)
 
 	local Players = game:GetService("Players")
 	local UserInputService = game:GetService("UserInputService")
-	local TweenService = game:GetService("TweenService")
 	local RunService = game:GetService("RunService")
 	local TextService = game:GetService("TextService")
 	local ContextActionService = game:GetService("ContextActionService")
@@ -100,15 +99,25 @@ return function(MainFrame, Console_2)
 		)
 		or loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDEWorkspace.lua"))()
 
+	-- Minor/support systems live in their own ModuleScript so the main
+	-- editor function keeps register headroom for the actual code editor,
+	-- parser, autocomplete, folding, highlighting and input logic.
+	local IDEMinor =
+		RunService:IsStudio()
+		and require(
+			script.Parent:WaitForChild(
+				"IDEMinor"
+			)
+		)
+		or loadstring(
+			game:HttpGetAsync(
+				"https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDEMinor.lua"
+			)
+		)()
+
 	-- ============================================================
 	-- [03] CONFIGURATION / FEATURE FLAGS
 	-- ============================================================
-
-	local MIN_WIDTH = 400
-	local MIN_HEIGHT = 250
-
-	local MAX_WIDTH = 1400
-	local MAX_HEIGHT = 900
 
 	local EDITOR_BG = Color3.fromRGB(30, 30, 30)
 
@@ -6197,538 +6206,48 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- [35] WINDOW DRAGGING
-	-- ============================================================
-
-	local function MakeDraggable(topbarobject, object)
-		local Dragging = nil
-		local DragInput = nil
-		local DragStart = nil
-		local StartPosition = nil
-
-		local function Update(input)
-			local Delta = input.Position - DragStart
-			local pos =
-				UDim2.new(
-					StartPosition.X.Scale,
-					StartPosition.X.Offset + Delta.X,
-					StartPosition.Y.Scale,
-					StartPosition.Y.Offset + Delta.Y
-				)
-			local Tween = TweenService:Create(object, TweenInfo.new(0.2), {Position = pos})
-			Tween:Play()
-		end
-
-		topbarobject.InputBegan:Connect(
-			function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-					Dragging = true
-					DragStart = input.Position
-					StartPosition = object.Position
-
-					input.Changed:Connect(
-						function()
-							if input.UserInputState == Enum.UserInputState.End then
-								Dragging = false
-							end
-						end
-					)
-				end
-			end
-		)
-
-		topbarobject.InputChanged:Connect(
-			function(input)
-				if
-					input.UserInputType == Enum.UserInputType.MouseMovement or
-					input.UserInputType == Enum.UserInputType.Touch
-				then
-					DragInput = input
-				end
-			end
-		)
-
-		UserInputService.InputChanged:Connect(
-			function(input)
-				if input == DragInput and Dragging then
-					Update(input)
-				end
-			end
-		)
-	end
-
-	MakeDraggable(frame, frame)
-
-	-- ============================================================
-	-- [36] WINDOW RESIZING
-	-- ============================================================
-
-	local resizing = false
-	local resizeStartMouse = nil
-	local resizeStartSize = nil
-
-	local resizeHandle =
-		Instance.new("TextButton")
-
-	resizeHandle.Name =
-		"ResizeHandle"
-
-	resizeHandle.Size =
-		UDim2.fromOffset(18, 18)
-
-	resizeHandle.Position =
-		UDim2.new(
-			1,
-			-18,
-			1,
-			-18
-		)
-
-	resizeHandle.BackgroundTransparency = 0.7
-	resizeHandle.BorderSizePixel = 0
-
-	resizeHandle.Text = ""
-	resizeHandle.AutoButtonColor = false
-
-	resizeHandle.ZIndex = 100
-	resizeHandle.Parent = frame
-
-	resizeHandle.MouseButton1Down:Connect(
-		function()
-			resizing = true
-
-			resizeStartMouse =
-				UserInputService:GetMouseLocation()
-
-			resizeStartSize =
-				Vector2.new(
-					frame.AbsoluteSize.X,
-					frame.AbsoluteSize.Y
-				)
-		end
-	)
-
-	UserInputService.InputChanged:Connect(
-		function(inputObject)
-			if not resizing then
-				return
-			end
-
-			if inputObject.UserInputType
-				~= Enum.UserInputType.MouseMovement
-			then
-				return
-			end
-
-			local currentMouse =
-				UserInputService:GetMouseLocation()
-
-			local delta =
-				currentMouse
-			- resizeStartMouse
-
-			local newWidth =
-				math.clamp(
-					resizeStartSize.X
-					+ delta.X,
-					MIN_WIDTH,
-					MAX_WIDTH
-				)
-
-			local newHeight =
-				math.clamp(
-					resizeStartSize.Y
-					+ delta.Y,
-					MIN_HEIGHT,
-					MAX_HEIGHT
-				)
-
-			frame.Size =
-				UDim2.fromOffset(
-					newWidth,
-					newHeight
-				)
-
-			task.defer(
-				function()
-					if not frame.Parent then
-						return
-					end
-
-					updateEditorLayout()
-					rebuildGutter()
-					updateErrorUnderlines()
-					updateBracketMatching()
-					positionAutocomplete()
-				end
-			)
-		end
-	)
-
-	UserInputService.InputEnded:Connect(
-		function(inputObject)
-			if inputObject.UserInputType
-				== Enum.UserInputType.MouseButton1
-			then
-				resizing = false
-			end
-		end
-	)
-
-	-- ============================================================
-	-- [37] TOOLBAR BUTTON REFERENCES
-	-- ============================================================
-
-	local ButtonsFrame =
-		CodingHolder:FindFirstChild(
-			"Settings"
-		)
-
-	local SettingsButton = nil
-	local SaveFile = nil
-	local OpenFile = nil
-	local Clear = nil
-	local Execute = nil
-	local Console = nil
-
-	if ButtonsFrame then
-		SettingsButton =
-			ButtonsFrame:FindFirstChild("Settings")
-
-		SaveFile =
-			ButtonsFrame:FindFirstChild("SaveFile")
-
-		OpenFile =
-			ButtonsFrame:FindFirstChild("OpenFile")
-
-		Clear =
-			ButtonsFrame:FindFirstChild("Clear")
-
-		Execute =
-			ButtonsFrame:FindFirstChild("Execute")
-
-		Console =
-			ButtonsFrame:FindFirstChild("Console")
-	end
-
-	-- ============================================================
-	-- [38] EXECUTE BUTTON / EDITOR RUNTIME DIAGNOSTICS
+	-- [35] MINOR / SUPPORT SYSTEMS
 	-- ============================================================
 	--
-	-- Compile the editor source with a dedicated chunk name. This makes
-	-- loadstring/runtime errors point to the user's code instead of a line
-	-- number inside this very large Potassium.IDE ModuleScript.
+	-- Main IDE functionality stays in this file. Window chrome, Settings,
+	-- the menu hotkey, resizing/dragging, toolbar plumbing and viewport
+	-- refresh bookkeeping live in IDEMinor so they do not consume the main
+	-- initializer's limited local-register budget.
 
-	do
-		local diagnostic =
-			CodingHolder:FindFirstChild(
-				"ExecutionDiagnostic"
-			)
+	local MinorController =
+		IDEMinor.new({
+			MainFrame = frame,
+			ConsoleFrame = Console_2,
+			CodingHolder = CodingHolder,
+			EditorScroll = EditorScroll,
+			Input = input,
+			Features = Features,
 
-		if not diagnostic then
-			diagnostic =
-				Instance.new("TextLabel")
+			-- ----------------------------------------------------
+			-- MAIN FUNCTIONALITY CALLBACKS
+			-- ----------------------------------------------------
 
-			diagnostic.Name =
-				"ExecutionDiagnostic"
+			onExecute = function()
+				local success, result =
+				pcall(function()
+					return loadstring(
+						input.Text
+					)()
+				end)
 
-			diagnostic.Visible = false
-			diagnostic.AnchorPoint =
-				Vector2.new(0, 1)
-
-			diagnostic.Position =
-				UDim2.new(
-					0,
-					8,
-					1,
-					-45
-				)
-
-			diagnostic.Size =
-				UDim2.new(
-					1,
-					-16,
-					0,
-					34
-				)
-
-			diagnostic.BackgroundColor3 =
-				Color3.fromRGB(
-					58,
-					31,
-					34
-				)
-
-			diagnostic.BackgroundTransparency = 0.08
-			diagnostic.BorderSizePixel = 0
-
-			diagnostic.TextColor3 =
-				Color3.fromRGB(
-					255,
-					180,
-					185
-				)
-
-			diagnostic.TextXAlignment =
-				Enum.TextXAlignment.Left
-
-			diagnostic.TextYAlignment =
-				Enum.TextYAlignment.Center
-
-			diagnostic.TextWrapped = true
-			diagnostic.Font = Enum.Font.Code
-			diagnostic.TextSize = 12
-			diagnostic.ZIndex = 60
-			diagnostic.Parent = CodingHolder
-
-			local padding =
-				Instance.new("UIPadding")
-
-			padding.PaddingLeft =
-				UDim.new(0, 9)
-
-			padding.PaddingRight =
-				UDim.new(0, 9)
-
-			padding.Parent =
-				diagnostic
-
-			local corner =
-				Instance.new("UICorner")
-
-			corner.CornerRadius =
-				UDim.new(0, 4)
-
-			corner.Parent =
-				diagnostic
-		end
-
-		local function extractEditorLine(message)
-			message =
-				tostring(message or "")
-
-			local lineNumber =
-				message:match(
-					'%[string "PotassiumEditor"%]:(%d+):'
-				)
-
-			lineNumber =
-				lineNumber
-				or message:match(
-					"PotassiumEditor:(%d+):"
-				)
-
-			lineNumber =
-				lineNumber
-				or message:match(
-					"%[PotassiumEditor%]:(%d+):"
-				)
-
-			lineNumber =
-				lineNumber
-				or message:match(
-					'^.-%]:(%d+):'
-				)
-
-			return tonumber(lineNumber)
-		end
-
-		local function cleanExecutionMessage(message)
-			message =
-				tostring(
-					message
-					or "Unknown execution error"
-				)
-
-			message =
-				message:match("([^\n\r]+)")
-				or message
-
-			message =
-				message:gsub(
-					'^%[string "PotassiumEditor"%]:%d+:%s*',
-					""
-				)
-
-			message =
-				message:gsub(
-					"^PotassiumEditor:%d+:%s*",
-					""
-				)
-
-			message =
-				message:gsub(
-					"^%[PotassiumEditor%]:%d+:%s*",
-					""
-				)
-
-			return message
-		end
-
-		local function showExecutionError(
-			lineNumber,
-			message
-		)
-			lineNumber =
-				math.clamp(
-					tonumber(lineNumber)
-					or 1,
-					1,
-					math.max(
-						1,
-						#getLines(
-							input.Text
-						)
+				if not success then
+					warn(
+						"[Potassium IDE] Execution error:",
+						result
 					)
-				)
-
-			local cleanMessage =
-				cleanExecutionMessage(
-					message
-				)
-
-			diagnostic.Text =
-				"Line "
-				.. tostring(lineNumber)
-				.. ": "
-				.. cleanMessage
-
-			diagnostic.Visible = true
-
-			currentErrors =
-				findErrors(
-					input.Text
-				)
-
-			table.insert(
-				currentErrors,
-				{
-					line = lineNumber,
-					column = 1,
-					message =
-						"Execution: "
-						.. cleanMessage,
-				}
-			)
-
-			updateErrorUnderlines()
-
-			local lineStart =
-				getLineStart(
-					input.Text,
-					lineNumber
-				)
-
-			input.CursorPosition =
-				math.clamp(
-					lineStart,
-					1,
-					#input.Text + 1
-				)
-
-			input.SelectionStart =
-				input.CursorPosition
-
-			logicalCursorPosition =
-				input.CursorPosition
-
-			task.defer(function()
-				if input.Parent then
-					input:CaptureFocus()
-					ensureCursorVisible()
-					updateEditorCursor()
 				end
-			end)
-		end
+			end,
 
-		local function clearExecutionDiagnostic()
-			diagnostic.Visible = false
-
-			currentErrors =
-				findErrors(
-					input.Text
-				)
-
-			updateErrorUnderlines()
-		end
-
-		if Execute then
-			Execute.MouseButton1Click:Connect(
-				function()
-					clearExecutionDiagnostic()
-
-					local compiled,
-					compileError =
-						loadstring(
-							input.Text,
-							"PotassiumEditor"
-						)
-
-					if not compiled then
-						showExecutionError(
-							extractEditorLine(
-								compileError
-							),
-							compileError
-						)
-
-						return
-					end
-
-					local success,
-					result =
-						xpcall(
-							compiled,
-							function(err)
-								return tostring(err)
-							end
-						)
-
-					if not success then
-						showExecutionError(
-							extractEditorLine(
-								result
-							),
-							result
-						)
-
-						return
-					end
-
-					diagnostic.Visible = false
-				end
-			)
-		end
-
-		input:GetPropertyChangedSignal(
-			"Text"
-		):Connect(function()
-			if diagnostic.Visible then
-				diagnostic.Visible = false
-			end
-		end)
-	end
-
-	-- ============================================================
-	-- [39] CLEAR BUTTON
-	-- ============================================================
-
-	if Clear then
-		Clear.MouseButton1Click:Connect(
-			function()
+			onClear = function()
 				input.Text = ""
-			end
-		)
-	end
+			end,
 
-	-- ============================================================
-	-- [40] CONSOLE BUTTON
-	-- ============================================================
-
-	if Console then
-		Console.MouseButton1Click:Connect(
-			function()
-
+			onConsole = function()
 				if Console_2 then
 					Console_2.Visible = true
 				else
@@ -6736,353 +6255,109 @@ return function(MainFrame, Console_2)
 						"[Potassium IDE] Console UI not found."
 					)
 				end
-			end
-		)
-	end
+			end,
 
-	-- ============================================================
-	-- [41] SETTINGS WINDOW
-	-- ============================================================
-
-	local SettingsFrame =
-		frame:FindFirstChild("Settings")
-
-	if SettingsFrame then
-		SettingsFrame.Visible = false
-	end
-
-	if SettingsButton
-		and SettingsFrame
-	then
-		SettingsButton.MouseButton1Click:Connect(
-			function()
-				local settingsContainer =
-					ButtonsFrame.Parent
-
-				settingsContainer.Visible = true
-
-				TweenService:Create(
-					settingsContainer,
-					TweenInfo.new(
-						0.3,
-						Enum.EasingStyle.Quad,
-						Enum.EasingDirection.Out
-					),
-					{
-						Size =
-							UDim2.new(
-								1,
-								0,
-								0,
-								0
-							),
-
-						Position =
-							UDim2.new(
-								0,
-								0,
-								1,
-								0
-							),
-					}
-				):Play()
-
-				SettingsFrame.Visible = true
-
-				TweenService:Create(
-					SettingsFrame,
-					TweenInfo.new(
-						0.3,
-						Enum.EasingStyle.Quad,
-						Enum.EasingDirection.Out
-					),
-					{
-						Size =
-							UDim2.fromScale(
-								1,
-								1
-							),
-
-						Position =
-							UDim2.fromOffset(
-								0,
-								0
-							),
-					}
-				):Play()
-			end
-		)
-	end
-
-	-- ============================================================
-	-- [42] FEATURE SETTINGS / TOGGLES
-	-- ============================================================
-
-	local featureNames = {
-		{
-			key = "SmartEnter",
-			name = "Smart Enter",
-			default = false,
-		},
-
-		{
-			key = "BracketMatching",
-			name = "Brackets",
-			default = true,
-		},
-
-		{
-			key = "ErrorUnderline",
-			name = "Errors",
-			default = true,
-		},
-
-		{
-			key = "CodeFolding",
-			name = "Folding",
-			default = true,
-		},
-
-		{
-			key = "Autocomplete",
-			name = "Autocomplete",
-			default = true,
-		},
-
-		{
-			key = "BracketAutoClose",
-			name = "Auto Close",
-			default = true,
-		},
-	}
-
-	if SettingsFrame then
-		local Templates =
-			SettingsFrame:FindFirstChild(
-				"Templates"
+			onFeatureChanged = function(
+				featureKey,
+				enabled
 			)
+				updateDisplay()
+				rebuildGutter()
 
-		local Template = nil
-
-		if Templates then
-			Template =
-				Templates:FindFirstChild(
-					"Template"
+				currentErrors =
+				findErrors(
+					input.Text
 				)
-		end
 
-		local Holder =
-			SettingsFrame:FindFirstChild(
-				"Holder"
-			)
+				updateErrorUnderlines()
+				updateBracketMatching()
 
-		if Template
-			and Holder
-		then
-			for _, feature in ipairs(featureNames) do
-				Features[feature.key] =
-					feature.default == true
-
-				local Button =
-					Template:Clone()
-
-				Button.Name =
-					feature.key
-
-				local title =
-					Button:FindFirstChild(
-						"Title"
-					)
-
-				if title
-					and title:IsA("TextLabel")
+				if featureKey
+					== "Autocomplete"
 				then
-					title.Text =
-						feature.name
-				end
-
-				Button.Parent = Holder
-				Button.Visible = true
-
-				Button:SetAttribute(
-					"Key",
-					feature.key
-				)
-
-				Button:SetAttribute(
-					"Enabled",
-					Features[feature.key]
-				)
-
-				local imageLabel =
-					Button:FindFirstChild(
-						"ImageLabel"
-					)
-
-				local function updateButton()
-					if not imageLabel then
-						return
-					end
-
-					imageLabel.BackgroundColor3 =
-						Features[feature.key]
-						and Color3.fromRGB(
-							172,
-							255,
-							47
-						)
-						or Color3.fromRGB(
-							255,
-							88,
-							91
-						)
-				end
-
-				updateButton()
-
-				if Button:IsA("GuiButton") then
-					Button.MouseButton1Click:Connect(
-						function()
-							Features[feature.key] =
-								not Features[
-							feature.key
-							]
-
-							local enabled =
-								Features[
-							feature.key
-							]
-
-							Button:SetAttribute(
-								"Enabled",
-								enabled
-							)
-
-							if imageLabel then
-								TweenService:Create(
-									imageLabel,
-									TweenInfo.new(
-										0.3,
-										Enum.EasingStyle.Quad,
-										Enum.EasingDirection.Out
-									),
-									{
-										BackgroundColor3 =
-											enabled
-											and Color3.fromRGB(
-												172,
-												255,
-												47
-											)
-											or Color3.fromRGB(
-												255,
-												88,
-												91
-											),
-									}
-								):Play()
-							end
-
-							updateDisplay()
-							rebuildGutter()
-
-							currentErrors =
-								findErrors(
-									input.Text
-								)
-
-							updateErrorUnderlines()
-							updateBracketMatching()
-
-							if enabled
-								and feature.key
-								== "Autocomplete"
-							then
-								showAutocomplete()
-
-							elseif feature.key
-								== "Autocomplete"
-							then
-								clearAutocomplete()
-							end
-						end
-					)
-				end
-			end
-		end
-	end
-
-	-- ============================================================
-	-- [43] SETTINGS CLOSE / WINDOW FOCUS
-	-- ============================================================
-
-	if SettingsFrame then
-		local close =
-			SettingsFrame:FindFirstChild(
-				"Close"
-			)
-
-		if close
-			and close:IsA("GuiButton")
-		then
-			close.MouseButton1Click:Connect(
-				function()
-					TweenService:Create(
-						SettingsFrame,
-						TweenInfo.new(
-							0.3,
-							Enum.EasingStyle.Quad,
-							Enum.EasingDirection.Out
-						),
-						{
-							Size =
-								UDim2.new(
-									1,
-									0,
-									0,
-									0
-								),
-						}
-					):Play()
-
-					task.delay(
-						0.3,
-						function()
-							SettingsFrame.Visible =
-								false
-						end
-					)
-
-					if ButtonsFrame then
-						ButtonsFrame.Parent.Visible =
-							true
-
-						TweenService:Create(
-							ButtonsFrame.Parent,
-							TweenInfo.new(
-								0.3,
-								Enum.EasingStyle.Quad,
-								Enum.EasingDirection.Out
-							),
-							{
-								Size =
-									UDim2.fromScale(
-										1,
-										1
-									),
-
-								Position =
-									UDim2.fromOffset(
-										0,
-										0
-									),
-							}
-						):Play()
+					if enabled then
+						showAutocomplete()
+					else
+						clearAutocomplete()
 					end
 				end
-			)
-		end
-	end
+			end,
+
+			onResize = function()
+				updateEditorLayout()
+				rebuildGutter()
+				updateErrorUnderlines()
+				updateBracketMatching()
+				positionAutocomplete()
+			end,
+
+			onMenuShown = function()
+				IDEINFOCUS()
+
+				task.defer(function()
+					if frame.Parent
+						and input.Parent
+					then
+						input:CaptureFocus()
+						updateEditorCursor()
+					end
+				end)
+			end,
+
+			onMenuHidden = function()
+				input:ReleaseFocus()
+				clearAutocomplete()
+				clearSelectionVisuals()
+				removeBracketOverlay()
+				editorCursor.Visible = false
+			end,
+
+			-- ----------------------------------------------------
+			-- VIEWPORT SUPPORT CALLBACKS
+			-- ----------------------------------------------------
+
+			rebuildFoldingCache =
+			rebuildFoldingCache,
+
+			getViewportVisibleRange =
+			getViewportVisibleRange,
+
+			getDisplayBuffer = function()
+				return DISPLAY_BUFFER_LINES
+			end,
+
+			getGutterBuffer = function()
+				return GUTTER_BUFFER_LINES
+			end,
+
+			updateDisplay =
+			updateDisplay,
+
+			rebuildGutter =
+			rebuildGutter,
+
+			updateErrorUnderlines =
+			updateErrorUnderlines,
+
+			positionAutocomplete =
+			positionAutocomplete,
+
+			isAutocompleteVisible =
+			function()
+				return completionPopup.Visible
+			end,
+
+			updateEditorCursor =
+			updateEditorCursor,
+
+			isInputFocused =
+			function()
+				return input:IsFocused()
+			end,
+
+			updateEditorLayout =
+			updateEditorLayout,
+		})
 
 	-- ============================================================
 	-- [44] TEXT-CHANGE PIPELINE
@@ -7897,140 +7172,7 @@ return function(MainFrame, Console_2)
 		refreshTextMetrics
 	)
 
-	-- ============================================================
-	-- [49] OPTIMIZED VIEWPORT REFRESH
-	-- ============================================================
-
-	local scrollRefreshPending = false
-
-	local lastDisplayFirstLine = -1
-	local lastDisplayLastLine = -1
-
-	local lastGutterFirstLine = -1
-	local lastGutterLastLine = -1
-
-	local lastErrorFirstLine = -1
-	local lastErrorLastLine = -1
-
-	local function refreshViewportIfNeeded()
-		if not frame.Parent then
-			return
-		end
-
-		rebuildFoldingCache()
-
-		-- ========================================================
-		-- DISPLAY
-		-- ========================================================
-
-		local displayFirst, displayLast =
-			getViewportVisibleRange(
-				DISPLAY_BUFFER_LINES
-			)
-
-		if displayFirst ~= lastDisplayFirstLine
-			or displayLast ~= lastDisplayLastLine
-		then
-			lastDisplayFirstLine =
-				displayFirst
-
-			lastDisplayLastLine =
-				displayLast
-
-			updateDisplay()
-		end
-
-		-- ========================================================
-		-- GUTTER
-		-- ========================================================
-
-		local gutterFirst, gutterLast =
-			getViewportVisibleRange(
-				GUTTER_BUFFER_LINES
-			)
-
-		if gutterFirst ~= lastGutterFirstLine
-			or gutterLast ~= lastGutterLastLine
-		then
-			lastGutterFirstLine =
-				gutterFirst
-
-			lastGutterLastLine =
-				gutterLast
-
-			rebuildGutter()
-		end
-
-		-- ========================================================
-		-- ERRORS
-		-- ========================================================
-
-		local errorFirst, errorLast =
-			getViewportVisibleRange(5)
-
-		if errorFirst ~= lastErrorFirstLine
-			or errorLast ~= lastErrorLastLine
-		then
-			lastErrorFirstLine =
-				errorFirst
-
-			lastErrorLastLine =
-				errorLast
-
-			updateErrorUnderlines()
-		end
-
-		-- These are very cheap and should follow smoothly.
-		if completionPopup.Visible then
-			positionAutocomplete()
-		end
-
-		if input:IsFocused() then
-			updateEditorCursor()
-		end
-	end
-
-	local function queueViewportRefresh()
-		if scrollRefreshPending then
-			return
-		end
-
-		scrollRefreshPending = true
-
-		-- Run once on the next rendered frame.
-		RunService.RenderStepped:Once(function()
-			scrollRefreshPending = false
-
-			refreshViewportIfNeeded()
-		end)
-	end
-
-	EditorScroll:GetPropertyChangedSignal(
-		"AbsoluteSize"
-	):Connect(function()
-
-		updateEditorLayout()
-
-		-- Force all viewport systems to refresh.
-		lastDisplayFirstLine = -1
-		lastDisplayLastLine = -1
-
-		lastGutterFirstLine = -1
-		lastGutterLastLine = -1
-
-		lastErrorFirstLine = -1
-		lastErrorLastLine = -1
-
-		queueViewportRefresh()
-	end)
-
-	EditorScroll:GetPropertyChangedSignal(
-		"CanvasPosition"
-	):Connect(function()
-
-		queueViewportRefresh()
-
-	end)
+	-- Viewport refresh bookkeeping is owned by IDEMinor.
 
 	-- ============================================================
 	-- [50] INITIALIZATION
