@@ -805,10 +805,10 @@ Log.Font = Enum.Font.SourceSans
 Log.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
 Log.Parent = Templates_2
 
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDE.lua"))(MainFrame, Console_2)
+	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDE.lua"))()(MainFrame, Console_2)
 
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Console.lua"))(Console_2)
+	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Console.lua"))()(Console_2)
 
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Intro.lua"))(Potassium_Internal)
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Explorer.lua"))(MainFrame, Console_2)
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/ScriptViewer.lua"))(MainFrame, Console_2)
+	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Intro.lua"))()(Potassium_Internal)
+	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Explorer.lua"))()(MainFrame, Console_2)
+	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/ScriptViewer.lua"))()(MainFrame, Console_2)
