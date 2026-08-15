@@ -1,11 +1,16 @@
-
-
 for i,v in pairs(getconnections(game.Players.LocalPlayer.Idled)) do
     v:Disable()
 end
 
-if game.CoreGui:FindFirstChild("woof") then
-   game.CoreGui:FindFirstChild("woof"):Destroy()
+-- Keep custom UI under PlayerGui. CoreGui is protected and can cause
+-- "lacking capability Plugin" errors when this code runs from a normal client thread.
+local PlayersService = game:GetService("Players")
+local LocalPlayer = PlayersService.LocalPlayer or PlayersService.PlayerAdded:Wait()
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local ExistingUI = PlayerGui:FindFirstChild("woof")
+if ExistingUI then
+    ExistingUI:Destroy()
 end
 
 local Loaded = false
@@ -39,7 +44,7 @@ end
       Market = game:GetService("MarketplaceService"),
       Workspace = game:GetService("Workspace"),
       ReplStorage = game:GetService("ReplicatedStorage"),
-      CoreGui = game:GetService("CoreGui"),
+      CoreGui = PlayerGui,
       VirtualUser = game:GetService("VirtualUser"),
       VirtualInputManager = game:GetService("VirtualInputManager"),
       Players = game:GetService("Players"),
@@ -114,7 +119,6 @@ end
  local UserInputService = game:GetService("UserInputService")
  local TweenService = game:GetService("TweenService")
  local RunService = game:GetService("RunService")
- local LocalPlayer = game:GetService("Players").LocalPlayer
  local Mouse = LocalPlayer:GetMouse()
  getgenv().checklists = {}
  
@@ -222,7 +226,10 @@ end
  
  local woof = Instance.new("ScreenGui")
  woof.Name = "woof"
- woof.Parent = game.CoreGui
+ woof.ResetOnSpawn = false
+ woof.IgnoreGuiInset = true
+ woof.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ woof.Parent = PlayerGui
 
  
 
@@ -1020,8 +1027,12 @@ end
          end)
  
          ScriptHub.MouseButton1Click:Connect(function()
-          if game.CoreGui:FindFirstChild("ScriptBloxSearcher") then
-              game:GetService("CoreGui").ScriptBloxSearcher.MainFrame.Visible = true
+          local ScriptBloxSearcher = PlayerGui:FindFirstChild("ScriptBloxSearcher")
+          if ScriptBloxSearcher then
+              local ScriptBloxMainFrame = ScriptBloxSearcher:FindFirstChild("MainFrame")
+              if ScriptBloxMainFrame then
+                  ScriptBloxMainFrame.Visible = true
+              end
           else
               -- loadstring(game:HttpGet("https://gitlab.com/L1ZOT/test-project/-/raw/main/Script-Hub"))()
           end
@@ -1579,26 +1590,18 @@ end
  
           end)
  
- function UpdateResoults()
-     local search = string.lower(MainFrameSearchBox.Text)
-     for i,v in pairs(Container:GetChildren()) do
-         if v.ClassName ~= "UIListLayout" and v.ClassName ~= "Frame" and v.ClassName ~= "UIPadding" then
-             if search ~= "" then
-                 local item = string.lower(v.Name)
-                 if string.find(item, search) then
-                     
-                 else
-                     v.Visible = false
-                 end
-             else
-                 v.Visible = true
-             end
+ local function UpdateResults()
+     local search = string.lower(MainFrameSearchBox.Text or "")
+
+     for _, v in ipairs(Container:GetChildren()) do
+         if v:IsA("GuiObject") then
+             local item = string.lower(v.Name or "")
+             v.Visible = (search == "") or (string.find(item, search, 1, true) ~= nil)
          end
      end
- 
  end
- 
- MainFrameSearchBox.Changed:Connect(UpdateResoults)
+
+ MainFrameSearchBox:GetPropertyChangedSignal("Text"):Connect(UpdateResults)
  
  
     local InternalUIFrameCorner = Instance.new("UICorner")
@@ -1651,7 +1654,7 @@ end
  --     --   writefile(FilesStorage.."/"..name..".lua", CodingBox.Text)
  --       local stringi = FilesStorage.."/"..name..".lua"
  
- --           local NewFileClone = game:GetService("CoreGui").woof.InternalUIFrame.FilesFrame.FilesHolder.SavedFiles:Clone()
+ --           local NewFileClone = woof.InternalUIFrame.FilesFrame.FilesHolder.SavedFiles:Clone()
  --           NewFileClone.Parent = FilesHolder
  --           NewFileClone.Text = string.gsub(stringi, "Project Meow/FilesStorage", "\n")
  --           NewFileClone.Name = string.gsub(stringi, "Project Meow/FilesStorage", "\n")
@@ -1667,7 +1670,7 @@ end
       end
       local listF = {}
       for i,v in pairs(listF) do
-       local NewFileClone = game:GetService("CoreGui").woof.InternalUIFrame.FilesFrame.FilesHolder.SavedFiles:Clone()
+       local NewFileClone = woof.InternalUIFrame.FilesFrame.FilesHolder.SavedFiles:Clone()
        NewFileClone.Parent = FilesHolder
        NewFileClone.Text = string.gsub(v, "Project Meow/FilesStorage", "\n")
        NewFileClone.Name = v
@@ -4807,7 +4810,7 @@ end
  
  function Mainholder:setTheme(Tab)
     Tab:Colorpicker("DarkContrast", Color3.fromRGB(35, 35, 35), function(t)
-       for i,v in pairs(game:GetService("CoreGui").woof.MainFrame.ContainerHold:GetDescendants()) do
+       for i,v in pairs(woof.MainFrame.ContainerHold:GetDescendants()) do
           if v.ClassName == "TextButton" then
              v.BackgroundColor3 = t
           end
@@ -4815,11 +4818,11 @@ end
        getgenv().GUI_Color.DarkContrast = t
     end)
     Tab:Colorpicker("Background Color", Color3.fromRGB(27, 27, 27), function(t)
-       game:GetService("CoreGui").woof.MainFrame.BackgroundColor3 = t
+       woof.MainFrame.BackgroundColor3 = t
        getgenv().GUI_Color.Bacground = t
     end)
     Tab:Colorpicker("TextColor", Color3.fromRGB(255, 255, 255), function(t)
-       for i,v in pairs(game:GetService("CoreGui").woof.MainFrame.ContainerHold:GetDescendants()) do
+       for i,v in pairs(woof.MainFrame.ContainerHold:GetDescendants()) do
           if string.find(v.Name, "Title") or v.ClassName == "TextButton" then
              v.TextColor3 = t
           end
@@ -5106,3 +5109,4 @@ end
 -- Example()
  
  return Mainholder
+
