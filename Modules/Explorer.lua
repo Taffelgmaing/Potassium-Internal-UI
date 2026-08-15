@@ -17,6 +17,38 @@ return function(MainFrame, Console_2)
 	]]
 
 	-- ============================================================
+	-- EASY EDIT SETTINGS
+	-- ============================================================
+
+	local SETTINGS = {
+		Window = {
+			DefaultWidth = 760,
+			DefaultHeight = 540,
+		},
+
+		Theme = {
+			WindowBackground = Color3.fromRGB(30, 30, 30),
+			PanelBackground = Color3.fromRGB(34, 34, 34),
+			TopBackground = Color3.fromRGB(38, 38, 38),
+			RowBackground = Color3.fromRGB(40, 40, 40),
+			SelectedRowBackground = Color3.fromRGB(58, 72, 92),
+			InputBackground = Color3.fromRGB(45, 45, 45),
+			Border = Color3.fromRGB(62, 62, 62),
+			Text = Color3.fromRGB(220, 220, 220),
+			Muted = Color3.fromRGB(145, 145, 145),
+			Accent = Color3.fromRGB(110, 173, 255),
+			Danger = Color3.fromRGB(244, 71, 71),
+		},
+
+		Tree = {
+			DragThreshold = 6,
+			MaxRows = 5000,
+			MaxSearchResults = 250,
+			MaxSearchScan = 10000,
+		},
+	}
+
+	-- ============================================================
 	-- SERVICES
 	-- ============================================================
 
@@ -127,17 +159,17 @@ return function(MainFrame, Console_2)
 	local ExplorerWindow = nil
 
 	do
-		local WINDOW_BG = Color3.fromRGB(30, 30, 30)
-		local PANEL_BG = Color3.fromRGB(34, 34, 34)
-		local TOP_BG = Color3.fromRGB(38, 38, 38)
-		local ROW_BG = Color3.fromRGB(40, 40, 40)
-		local ROW_SELECTED_BG = Color3.fromRGB(58, 72, 92)
-		local INPUT_BG = Color3.fromRGB(45, 45, 45)
-		local BORDER = Color3.fromRGB(62, 62, 62)
-		local TEXT = Color3.fromRGB(220, 220, 220)
-		local MUTED = Color3.fromRGB(145, 145, 145)
-		local ACCENT = Color3.fromRGB(110, 173, 255)
-		local DANGER = Color3.fromRGB(244, 71, 71)
+		local WINDOW_BG = SETTINGS.Theme.WindowBackground
+		local PANEL_BG = SETTINGS.Theme.PanelBackground
+		local TOP_BG = SETTINGS.Theme.TopBackground
+		local ROW_BG = SETTINGS.Theme.RowBackground
+		local ROW_SELECTED_BG = SETTINGS.Theme.SelectedRowBackground
+		local INPUT_BG = SETTINGS.Theme.InputBackground
+		local BORDER = SETTINGS.Theme.Border
+		local TEXT = SETTINGS.Theme.Text
+		local MUTED = SETTINGS.Theme.Muted
+		local ACCENT = SETTINGS.Theme.Accent
+		local DANGER = SETTINGS.Theme.Danger
 
 		local explorerParent = frame.Parent
 
@@ -151,7 +183,7 @@ return function(MainFrame, Console_2)
 			ExplorerWindow.Name = "PotassiumExplorer"
 			ExplorerWindow.AnchorPoint = Vector2.new(0.5, 0.5)
 			ExplorerWindow.Position = UDim2.new(0.62, 0, 0.5, 0)
-			ExplorerWindow.Size = UDim2.fromOffset(760, 540)
+			ExplorerWindow.Size = UDim2.fromOffset(SETTINGS.Window.DefaultWidth, SETTINGS.Window.DefaultHeight)
 			ExplorerWindow.BackgroundColor3 = WINDOW_BG
 			ExplorerWindow.BorderSizePixel = 0
 			ExplorerWindow.Visible = false
@@ -507,7 +539,7 @@ return function(MainFrame, Console_2)
 		local pendingTreeDragStart = nil
 		local draggingTreeInstance = nil
 		local dragDropTarget = nil
-		local TREE_DRAG_THRESHOLD = 7
+		local TREE_DRAG_THRESHOLD = SETTINGS.Tree.DragThreshold
 
 		local ExplorerSettings = {
 			WorldPick = false,
@@ -541,9 +573,9 @@ return function(MainFrame, Console_2)
 				ExplorerWindow
 		end
 
-		local MAX_TREE_ROWS = 1800
-		local MAX_SEARCH_RESULTS = 300
-		local MAX_SEARCH_SCAN = 25000
+		local MAX_TREE_ROWS = SETTINGS.Tree.MaxRows
+		local MAX_SEARCH_RESULTS = SETTINGS.Tree.MaxSearchResults
+		local MAX_SEARCH_SCAN = SETTINGS.Tree.MaxSearchScan
 
 		local READ_ONLY_PROPERTIES = {
 			ClassName = true,
