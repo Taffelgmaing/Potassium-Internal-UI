@@ -18,18 +18,65 @@
 	frame and keeps Potassium.IDE comfortably below that limit.
 ]]
 
+-- ============================================================
+-- EASY EDIT SETTINGS
+-- ============================================================
+
+local SETTINGS = {
+	Layout = {
+		WorkspaceMargin = 8,
+		TabBarHeight = 30,
+		FilePanelWidth = 172,
+		BottomToolbarHeight = 42,
+		EditorGutterWidth = 60,
+	},
+
+	Files = {
+		RootFolder = "PotassiumWorkspace",
+		TweenTime = 0.32,
+		TweenStyle = Enum.EasingStyle.Quint,
+		TweenDirection = Enum.EasingDirection.Out,
+	},
+
+	EditorStroke = {
+		Enabled = true,
+		Color = Color3.fromRGB(70, 70, 70),
+		Thickness = 1,
+		Transparency = 0.15,
+		CornerRadius = 4,
+	},
+
+	Tabs = {
+		Width = 142,
+		Height = 26,
+		Gap = 4,
+	},
+}
+
 local Workspace = {}
 Workspace.__index = Workspace
 
 local UserInputService =
 	game:GetService("UserInputService")
 
-local WORKSPACE_MARGIN = 8
-local TAB_BAR_HEIGHT = 30
-local FILE_PANEL_WIDTH = 172
-local BOTTOM_TOOLBAR_HEIGHT = 42
+local TweenService =
+	game:GetService("TweenService")
 
-local FILE_ROOT = "PotassiumWorkspace"
+local WORKSPACE_MARGIN = SETTINGS.Layout.WorkspaceMargin
+local TAB_BAR_HEIGHT = SETTINGS.Layout.TabBarHeight
+local FILE_PANEL_WIDTH = SETTINGS.Layout.FilePanelWidth
+local BOTTOM_TOOLBAR_HEIGHT = SETTINGS.Layout.BottomToolbarHeight
+
+local FILE_TWEEN_TIME = SETTINGS.Files.TweenTime
+
+local FILE_TWEEN_INFO =
+	TweenInfo.new(
+		FILE_TWEEN_TIME,
+		Enum.EasingStyle.Quint,
+		Enum.EasingDirection.Out
+	)
+
+local FILE_ROOT = SETTINGS.Files.RootFolder
 
 local function makeCorner(parent, radius)
 	local corner =
@@ -155,6 +202,64 @@ function Workspace.new(context)
 			"[Potassium IDEWorkspace] EditorScroll is missing."
 		)
 
+	-- Main editor/code border.
+	-- Offset it past the 55px gutter so the left edge lines up with the
+	-- line-number/code boundary instead of the outer edge of EditorScroll.
+	local EDITOR_GUTTER_WIDTH = SETTINGS.Layout.EditorGutterWidth
+
+	local editorBorder =
+		self.CodingHolder:FindFirstChild(
+			"EditorBorder"
+		)
+
+	if not editorBorder then
+		editorBorder =
+			Instance.new("Frame")
+
+		editorBorder.Name =
+			"EditorBorder"
+
+		editorBorder.BackgroundTransparency = 1
+		editorBorder.BorderSizePixel = 0
+		editorBorder.ZIndex = 18
+		editorBorder.Parent =
+			self.CodingHolder
+
+		local stroke =
+			Instance.new("UIStroke")
+
+		stroke.Name =
+			"EditorStroke"
+
+		stroke.ApplyStrokeMode =
+			Enum.ApplyStrokeMode.Border
+
+		stroke.Thickness = SETTINGS.EditorStroke.Thickness
+
+		stroke.Color =
+			SETTINGS.EditorStroke.Color
+
+		stroke.Transparency = SETTINGS.EditorStroke.Transparency
+		stroke.Parent = editorBorder
+
+		local corner =
+			Instance.new("UICorner")
+
+		corner.Name =
+			"EditorCorner"
+
+		corner.CornerRadius =
+			UDim.new(0, SETTINGS.EditorStroke.CornerRadius)
+
+		corner.Parent = editorBorder
+	end
+
+	self.EditorBorder =
+		editorBorder
+
+	self.EditorGutterWidth =
+		EDITOR_GUTTER_WIDTH
+
 	self.ButtonsFrame =
 		context.ButtonsFrame
 
@@ -185,6 +290,19 @@ function Workspace.new(context)
 	}
 
 	self:_createUI()
+
+	-- File sidebar animation state.
+	-- Keep the GUI's existing initial visibility as the initial open state.
+	self.FilesOpen =
+		self.FilePanel.Visible
+
+	self.FileTweenSerial = 0
+	self.ActiveFileTweens = {}
+	self.FilesTweening = false
+
+	-- Clip the sidebar while its width animates from/to zero.
+	self.FilePanel.ClipsDescendants = true
+
 	self:_ensureWorkspaceFolder()
 	self:_wireBaseUI()
 
@@ -561,12 +679,103 @@ function Workspace:_createUI()
 	self.PromptConfirm = confirm
 end
 
-function Workspace:ApplyLayout()
+local function cancelTweenList(tweens)
+	for _, tween in ipairs(tweens) do
+		pcall(function()
+			tween:Cancel()
+		end)
+	end
+
+	table.clear(tweens)
+end
+
+function Workspace:_getLayoutTargets(filesOpen)
 	local sidebarWidth =
-		self.FilePanel.Visible
+		filesOpen
 		and FILE_PANEL_WIDTH
 		or 0
 
+	return {
+		tabBarSize =
+			UDim2.new(
+				1,
+				-(WORKSPACE_MARGIN * 2)
+				- sidebarWidth
+				- 34,
+				0,
+				TAB_BAR_HEIGHT
+			),
+
+		newTabPosition =
+			UDim2.new(
+				1,
+				-WORKSPACE_MARGIN
+				- sidebarWidth,
+				0,
+				WORKSPACE_MARGIN
+			),
+
+		filePanelSize =
+			UDim2.new(
+				0,
+				FILE_PANEL_WIDTH,
+				1,
+				-(WORKSPACE_MARGIN * 2)
+				- BOTTOM_TOOLBAR_HEIGHT
+			),
+
+		filePanelPosition =
+			filesOpen
+			and UDim2.new(
+				1,
+				-WORKSPACE_MARGIN,
+				0,
+				WORKSPACE_MARGIN
+			)
+			or UDim2.new(
+				1,
+				FILE_PANEL_WIDTH + 8,
+				0,
+				WORKSPACE_MARGIN
+			),
+
+		editorSize =
+			UDim2.new(
+				1,
+				-(WORKSPACE_MARGIN * 2)
+				- sidebarWidth,
+				1,
+				-(WORKSPACE_MARGIN * 2)
+				- TAB_BAR_HEIGHT
+				- BOTTOM_TOOLBAR_HEIGHT
+				- 8
+			),
+
+		editorBorderSize =
+			UDim2.new(
+				1,
+				-(WORKSPACE_MARGIN * 2)
+				- sidebarWidth
+				- self.EditorGutterWidth,
+				1,
+				-(WORKSPACE_MARGIN * 2)
+				- TAB_BAR_HEIGHT
+				- BOTTOM_TOOLBAR_HEIGHT
+				- 8
+			),
+
+		buttonsSize =
+			UDim2.new(
+				1,
+				-(WORKSPACE_MARGIN * 2)
+				- sidebarWidth,
+				0,
+				30
+			),
+	}
+end
+
+function Workspace:_applyStaticPositions()
 	self.Chrome.Position =
 		UDim2.fromOffset(0, 0)
 
@@ -579,27 +788,8 @@ function Workspace:ApplyLayout()
 			WORKSPACE_MARGIN
 		)
 
-	self.TabBar.Size =
-		UDim2.new(
-			1,
-			-(WORKSPACE_MARGIN * 2)
-			- sidebarWidth
-			- 34,
-			0,
-			TAB_BAR_HEIGHT
-		)
-
 	self.NewTabButton.AnchorPoint =
 		Vector2.new(1, 0)
-
-	self.NewTabButton.Position =
-		UDim2.new(
-			1,
-			-WORKSPACE_MARGIN
-			- sidebarWidth,
-			0,
-			WORKSPACE_MARGIN
-		)
 
 	self.NewTabButton.Size =
 		UDim2.fromOffset(
@@ -607,23 +797,10 @@ function Workspace:ApplyLayout()
 			TAB_BAR_HEIGHT
 		)
 
-	self.FilePanel.Position =
-		UDim2.new(
-			1,
-			-WORKSPACE_MARGIN
-			- FILE_PANEL_WIDTH,
-			0,
-			WORKSPACE_MARGIN
-		)
-
-	self.FilePanel.Size =
-		UDim2.new(
-			0,
-			FILE_PANEL_WIDTH,
-			1,
-			-(WORKSPACE_MARGIN * 2)
-			- BOTTOM_TOOLBAR_HEIGHT
-		)
+	-- Anchor the file panel to the right edge. Its width can then tween
+	-- cleanly between 0 and FILE_PANEL_WIDTH without drifting.
+	self.FilePanel.AnchorPoint =
+		Vector2.new(1, 0)
 
 	self.EditorScroll.Position =
 		UDim2.fromOffset(
@@ -633,16 +810,13 @@ function Workspace:ApplyLayout()
 			+ 6
 		)
 
-	self.EditorScroll.Size =
-		UDim2.new(
-			1,
-			-(WORKSPACE_MARGIN * 2)
-			- sidebarWidth,
-			1,
-			-(WORKSPACE_MARGIN * 2)
-			- TAB_BAR_HEIGHT
-			- BOTTOM_TOOLBAR_HEIGHT
-			- 8
+	self.EditorBorder.Position =
+		UDim2.fromOffset(
+			WORKSPACE_MARGIN
+			+ self.EditorGutterWidth,
+			WORKSPACE_MARGIN
+			+ TAB_BAR_HEIGHT
+			+ 6
 		)
 
 	if self.ButtonsFrame then
@@ -653,16 +827,247 @@ function Workspace:ApplyLayout()
 				1,
 				-BOTTOM_TOOLBAR_HEIGHT + 7
 			)
-
-		self.ButtonsFrame.Size =
-			UDim2.new(
-				1,
-				-(WORKSPACE_MARGIN * 2)
-				- sidebarWidth,
-				0,
-				30
-			)
 	end
+end
+
+function Workspace:ApplyLayout()
+	self:_applyStaticPositions()
+
+	-- The main IDE calls ApplyLayout() very frequently while rendering,
+	-- scrolling and updating the viewport. If we assign the tweened
+	-- properties here during an active Files animation, Roblox immediately
+	-- snaps them to their final values and the TweenService animation becomes
+	-- invisible.
+	--
+	-- Therefore: while the Files sidebar is tweening, leave every property
+	-- owned by the tween alone.
+	if self.FilesTweening then
+		return
+	end
+
+	local targets =
+		self:_getLayoutTargets(
+			self.FilesOpen
+		)
+
+	self.TabBar.Size =
+		targets.tabBarSize
+
+	self.NewTabButton.Position =
+		targets.newTabPosition
+
+	self.FilePanel.Size =
+		targets.filePanelSize
+
+	self.FilePanel.Position =
+		targets.filePanelPosition
+
+	self.EditorScroll.Size =
+		targets.editorSize
+
+	self.EditorBorder.Size =
+		targets.editorBorderSize
+
+	if self.ButtonsFrame then
+		self.ButtonsFrame.Size =
+			targets.buttonsSize
+	end
+
+	self.FilePanel.Visible =
+		self.FilesOpen
+end
+
+function Workspace:SetFilesOpen(
+	open,
+	instant
+)
+	open = open == true
+
+	if self.FilesOpen == open
+		and not instant
+	then
+		return
+	end
+
+	self.FilesOpen = open
+	self.FileTweenSerial += 1
+
+	local serial =
+		self.FileTweenSerial
+
+	cancelTweenList(
+		self.ActiveFileTweens
+	)
+
+	self.FilesTweening =
+		not instant
+
+	if self.MainFrame then
+		self.MainFrame:SetAttribute(
+			"FilesTweening",
+			self.FilesTweening
+		)
+	end
+
+	self:_applyStaticPositions()
+
+	local targets =
+		self:_getLayoutTargets(open)
+
+	-- It has to remain visible while closing so the user can see it
+	-- collapse instead of disappearing immediately.
+	self.FilePanel.Visible = true
+
+	if open then
+		self:RefreshFileSidebar()
+	end
+
+	if instant then
+		self.TabBar.Size =
+			targets.tabBarSize
+
+		self.NewTabButton.Position =
+			targets.newTabPosition
+
+		self.FilePanel.Size =
+			targets.filePanelSize
+
+		self.FilePanel.Position =
+			targets.filePanelPosition
+
+		self.EditorScroll.Size =
+			targets.editorSize
+
+		self.EditorBorder.Size =
+			targets.editorBorderSize
+
+		if self.ButtonsFrame then
+			self.ButtonsFrame.Size =
+				targets.buttonsSize
+		end
+
+		self.FilePanel.Visible = open
+		self.FilesTweening = false
+		return
+	end
+
+	local function playTween(
+		object,
+		properties
+	)
+		local tween =
+			TweenService:Create(
+				object,
+				FILE_TWEEN_INFO,
+				properties
+			)
+
+		table.insert(
+			self.ActiveFileTweens,
+			tween
+		)
+
+		tween:Play()
+
+		return tween
+	end
+
+	playTween(
+		self.TabBar,
+		{
+			Size =
+				targets.tabBarSize,
+		}
+	)
+
+	playTween(
+		self.NewTabButton,
+		{
+			Position =
+				targets.newTabPosition,
+		}
+	)
+
+	-- The Files tab itself slides in/out from the right.
+	-- Its width stays fixed so the content does not squash during animation.
+	self.FilePanel.Size =
+		targets.filePanelSize
+
+	local panelTween =
+		playTween(
+			self.FilePanel,
+			{
+				Position =
+				targets.filePanelPosition,
+			}
+		)
+
+	playTween(
+		self.EditorScroll,
+		{
+			Size =
+				targets.editorSize,
+		}
+	)
+
+	playTween(
+		self.EditorBorder,
+		{
+			Size =
+				targets.editorBorderSize,
+		}
+	)
+
+	if self.ButtonsFrame then
+		playTween(
+			self.ButtonsFrame,
+			{
+				Size =
+					targets.buttonsSize,
+			}
+		)
+	end
+
+	panelTween.Completed:Connect(
+		function(playbackState)
+			if serial
+				~= self.FileTweenSerial
+			then
+				return
+			end
+
+			if playbackState
+				~= Enum.PlaybackState.Completed
+			then
+				return
+			end
+
+			if not self.FilesOpen then
+				self.FilePanel.Visible =
+					false
+			end
+
+			self.FilesTweening = false
+
+			if self.MainFrame then
+				self.MainFrame:SetAttribute(
+					"FilesTweening",
+					false
+				)
+			end
+
+			table.clear(
+				self.ActiveFileTweens
+			)
+
+			-- Refresh the editor only after the animation has reached its
+			-- final size. Calling this during the tween would make the main
+			-- IDE call ApplyLayout() and snap the animation to the end.
+			if self.callbacks.layoutChanged then
+				self.callbacks.layoutChanged()
+			end
+		end
+	)
 end
 
 function Workspace:_hasPersistentFilesystem()
@@ -1022,7 +1427,7 @@ function Workspace:_createTabButton(document)
 	holder.Name =
 		"Tab_" .. document.id
 	holder.Size =
-		UDim2.fromOffset(142, 26)
+		UDim2.fromOffset(SETTINGS.Tabs.Width, SETTINGS.Tabs.Height)
 	holder.BackgroundColor3 =
 		Color3.fromRGB(40, 40, 40)
 	holder.BorderSizePixel = 0
@@ -1550,18 +1955,10 @@ function Workspace:_wireBaseUI()
 
 		self.FilesButton.MouseButton1Click:
 			Connect(function()
-				self.FilePanel.Visible =
-				not self.FilePanel.Visible
-
-				self:ApplyLayout()
-
-				if self.callbacks.layoutChanged then
-					self.callbacks.layoutChanged()
-				end
-
-				if self.FilePanel.Visible then
-					self:RefreshFileSidebar()
-				end
+				self:SetFilesOpen(
+					not self.FilesOpen,
+					false
+				)
 			end)
 	end
 
@@ -1639,7 +2036,10 @@ function Workspace:Bind(callbacks)
 		)
 	end
 
-	self:ApplyLayout()
+	self:SetFilesOpen(
+		self.FilesOpen,
+		true
+	)
 end
 
 return Workspace
