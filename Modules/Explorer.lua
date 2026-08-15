@@ -252,7 +252,7 @@ return function(MainFrame, Console_2)
 			title.Position = UDim2.fromOffset(12, 0)
 			title.Size = UDim2.new(1, -235, 1, 0)
 			title.TextSize = 14
-			
+
 			local titleBarCorner = Instance.new("UICorner")
 			titleBarCorner.Parent = titleBar
 			titleBarCorner.BottomLeftRadius = UDim.new(0, 0)
@@ -381,7 +381,7 @@ return function(MainFrame, Console_2)
 				newTextBox(
 					treePanel,
 					"Search",
-					"Search editable game objects..."
+					"Search all accessible game objects..."
 				)
 			treeSearch.Position = UDim2.fromOffset(8, 8)
 			treeSearch.Size = UDim2.new(1, -16, 0, 30)
@@ -1046,33 +1046,58 @@ return function(MainFrame, Console_2)
 		-- Only show game areas that are useful/editable from this client IDE.
 		-- This deliberately hides engine/internal services so the Explorer
 		-- looks much closer to a normal Studio project tree.
-		local EXPLORER_ROOT_SERVICES = {
+		-- ============================================================
+		-- EXPLORER ROOTS / SERVICE ORDER
+		-- ============================================================
+		--
+		-- Show every DataModel child/service that the current environment can
+		-- access. Important gameplay/client services are pinned to the top;
+		-- every remaining service is appended alphabetically.
+		--
+		-- CoreGui is requested explicitly because executor environments can
+		-- expose it even when it was not already materialized in game:GetChildren().
+
+		local PRIORITY_ROOT_SERVICES = {
 			"Workspace",
-			"Lighting",
+			"Players",
 			"ReplicatedStorage",
 			"ReplicatedFirst",
-			"SoundService",
+			"Lighting",
+			"CoreGui",
 			"StarterGui",
-			"StarterPack",
 			"StarterPlayer",
-			"Teams",
+			"StarterPack",
+			"SoundService",
 			"TextChatService",
-			"Players",
+			"Teams",
 		}
 
 		local explorerRootSet = {}
 
-		for _, serviceName in ipairs(
-			EXPLORER_ROOT_SERVICES
-			) do
-			explorerRootSet[serviceName] = true
-		end
-
 		local function getExplorerRoots()
 			local roots = {}
+			local seen = {}
 
+			local function addRoot(instance)
+				if not instance
+					or instance == game
+					or seen[instance]
+				then
+					return
+				end
+
+				seen[instance] = true
+				explorerRootSet[instance] = true
+
+				table.insert(
+					roots,
+					instance
+				)
+			end
+
+			-- Important roots first, in a predictable Studio-like order.
 			for _, serviceName in ipairs(
-				EXPLORER_ROOT_SERVICES
+				PRIORITY_ROOT_SERVICES
 				) do
 				local ok, service =
 					pcall(function()
@@ -1082,11 +1107,46 @@ return function(MainFrame, Console_2)
 					end)
 
 				if ok and service then
+					addRoot(service)
+				end
+			end
+
+			-- Then expose everything else currently parented to DataModel.
+			local otherRoots = {}
+
+			for _, child in ipairs(
+				safeChildren(game)
+				) do
+				if not seen[child] then
 					table.insert(
-						roots,
-						service
+						otherRoots,
+						child
 					)
 				end
+			end
+
+			table.sort(
+				otherRoots,
+				function(a, b)
+					local aName =
+						string.lower(a.Name)
+
+					local bName =
+						string.lower(b.Name)
+
+					if aName == bName then
+						return a.ClassName
+							< b.ClassName
+					end
+
+					return aName < bName
+				end
+			)
+
+			for _, instance in ipairs(
+				otherRoots
+				) do
+				addRoot(instance)
 			end
 
 			return roots
@@ -1095,11 +1155,13 @@ return function(MainFrame, Console_2)
 		local function isInsideExplorerRoot(instance)
 			local current = instance
 
-			while current and current ~= game do
+			while current
+				and current ~= game
+			do
 				if current.Parent == game then
-					return explorerRootSet[
-					current.Name
-					] == true
+					-- Every accessible direct DataModel child is now an
+					-- Explorer root, not only a curated whitelist.
+					return true
 				end
 
 				current = current.Parent
@@ -1109,27 +1171,11 @@ return function(MainFrame, Console_2)
 		end
 
 		local function getVisibleChildren(instance)
-			local children =
-				safeChildren(instance)
-
-			local filtered = {}
-
-			for _, child in ipairs(children) do
-				-- Once inside one of the allowed roots, descendants are
-				-- user/game objects and are safe to display.
-				if instance ~= game
-					or explorerRootSet[
-					child.Name
-					]
-				then
-					table.insert(
-						filtered,
-						child
-					)
-				end
+			if instance == game then
+				return getExplorerRoots()
 			end
 
-			return filtered
+			return safeChildren(instance)
 		end
 
 		local function getPath(instance)
@@ -4160,7 +4206,7 @@ return function(MainFrame, Console_2)
 				)
 
 			if searchText ~= "" then
-				-- Search only inside the curated/editable roots.
+				-- Search across every accessible Explorer root.
 				local queue =
 					getExplorerRoots()
 
@@ -4268,7 +4314,7 @@ return function(MainFrame, Console_2)
 				end
 
 				-- Do not show "game" as one giant expanded root.
-				-- Show the useful services directly, all collapsed.
+				-- Show all accessible services directly, with important ones first.
 				for _, root in ipairs(
 					getExplorerRoots()
 					) do
