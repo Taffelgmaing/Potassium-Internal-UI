@@ -87,6 +87,18 @@ return function(MainFrame, Console_2)
 	end
 
 	local CodingHolder = frame:WaitForChild("CodingHolder")
+	
+	-- Kept in a separate ModuleScript to avoid Luau's 200-local-register
+	-- limit in this already-large IDE initializer.
+	local IDEWorkspace = 
+		RunService:IsStudio()
+	and
+		require(
+			script.Parent:WaitForChild(
+				"IDEWorkspace"
+			)
+		)
+	or loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDEWorkspace.lua"))()
 
 	-- ============================================================
 	-- [03] CONFIGURATION / FEATURE FLAGS
@@ -368,6 +380,38 @@ return function(MainFrame, Console_2)
 	mouseCapture.Active = true
 	mouseCapture.Selectable = false
 	mouseCapture.ZIndex = 7
+
+	-- ============================================================
+	-- [09.5] WORKSPACE / TABS CONTROLLER
+	-- ============================================================
+
+	local WorkspaceController =
+		IDEWorkspace.new({
+			MainFrame = frame,
+			CodingHolder = CodingHolder,
+			Input = input,
+			EditorScroll = EditorScroll,
+			ButtonsFrame =
+			CodingHolder:FindFirstChild(
+				"Settings"
+			),
+			SaveButton =
+			CodingHolder:FindFirstChild(
+				"Settings"
+			)
+			and CodingHolder.Settings:
+			FindFirstChild(
+				"SaveFile"
+			),
+			FilesButton =
+			CodingHolder:FindFirstChild(
+				"Settings"
+			)
+			and CodingHolder.Settings:
+			FindFirstChild(
+				"OpenFile"
+			),
+		})
 
 	-- ============================================================
 	-- [10] GUTTER BASE SETUP
@@ -2485,6 +2529,8 @@ return function(MainFrame, Console_2)
 	-- ============================================================
 
 	updateEditorLayout = function()
+		WorkspaceController:ApplyLayout()
+
 		local absoluteSize = EditorScroll.AbsoluteSize
 		local editorWidth = math.max(1, absoluteSize.X)
 		local editorHeight = math.max(1, absoluteSize.Y)
@@ -6381,7 +6427,7 @@ return function(MainFrame, Console_2)
 							)()
 						end
 					)
-				
+
 				if not success then
 					warn(
 						"[Potassium IDE] Execution error:",
@@ -6812,6 +6858,84 @@ return function(MainFrame, Console_2)
 		end)
 	end
 
+	-- ============================================================
+	-- [44.5] WORKSPACE CONTROLLER BINDING
+	-- ============================================================
+
+	WorkspaceController:Bind({
+		getText = function()
+			return input.Text
+		end,
+
+		getCursor = function()
+			return math.max(
+				1,
+				input.CursorPosition
+			)
+		end,
+
+		getSelection = function()
+			return input.SelectionStart
+		end,
+
+		getCanvas = function()
+			return EditorScroll.CanvasPosition
+		end,
+
+		loadDocument = function(document)
+			updatingText = true
+
+			foldedBlocks = {}
+			clearAutocomplete()
+			clearSelectionVisuals()
+			removeBracketOverlay()
+
+			input.Text =
+				document.text or ""
+
+			input.CursorPosition =
+				math.clamp(
+					document.cursor or 1,
+					1,
+					#input.Text + 1
+				)
+
+			input.SelectionStart =
+				math.clamp(
+					document.selectionStart
+					or input.CursorPosition,
+					1,
+					#input.Text + 1
+				)
+
+			EditorScroll.CanvasPosition =
+				document.canvasPosition
+				or Vector2.zero
+
+			lastText = input.Text
+
+			invalidateFoldingCache()
+			invalidateHorizontalWidthCache()
+			rebuildDynamicSymbols(
+				input.Text
+			)
+
+			currentErrors =
+				findErrors(
+					input.Text
+				)
+
+			updatingText = false
+
+			refreshEditorView(false)
+		end,
+
+		layoutChanged = function()
+			updateEditorLayout()
+			refreshEditorView(false)
+		end,
+	})
+
 	input:GetPropertyChangedSignal("Text"):Connect(function()
 		invalidateFoldingCache()
 		invalidateHorizontalWidthCache()
@@ -6825,6 +6949,10 @@ return function(MainFrame, Console_2)
 		if updatingText then
 			return
 		end
+
+		WorkspaceController:MarkDirty(
+			input.Text
+		)
 
 		cursorNeedsUpdate = true
 
@@ -7654,8 +7782,10 @@ return function(MainFrame, Console_2)
 	rebuildGutter()
 	updateErrorUnderlines()
 	updateBracketMatching()
+	WorkspaceController:RefreshFileSidebar()
 
 	print(
 		"[Potassium IDE] Initialized successfully."
 	)
 end
+	
