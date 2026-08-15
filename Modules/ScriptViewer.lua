@@ -30,6 +30,44 @@ return function(MainFrame, Console_2)
 	]]
 
 	-- ============================================================
+	-- EASY EDIT SETTINGS
+	-- ============================================================
+
+	local SETTINGS = {
+		Window = {
+			Width = 800,
+			Height = 560,
+			Position = UDim2.new(0.58, 0, 0.54, 0),
+		},
+
+		Theme = {
+			WindowBackground = Color3.fromRGB(30, 30, 30),
+			PanelBackground = Color3.fromRGB(34, 34, 34),
+			TopBackground = Color3.fromRGB(38, 38, 38),
+			InputBackground = Color3.fromRGB(45, 45, 45),
+			Border = Color3.fromRGB(62, 62, 62),
+			Text = Color3.fromRGB(212, 212, 212),
+			Muted = Color3.fromRGB(145, 145, 145),
+			Accent = Color3.fromRGB(110, 173, 255),
+		},
+
+		SyntaxColors = {
+			keyword = "#569CD6",
+			string = "#CE9178",
+			comment = "#6A9955",
+			number = "#B5CEA8",
+			functionName = "#DCDCAA",
+			normal = "#D4D4D4",
+			func = "rgb(110, 173, 255)",
+			rblx = "rgb(198, 174, 57)",
+		},
+
+		Viewport = {
+			BufferLines = 20,
+		},
+	}
+
+	-- ============================================================
 	-- SERVICES
 	-- ============================================================
 
@@ -137,40 +175,23 @@ return function(MainFrame, Console_2)
 	-- THEME
 	-- ============================================================
 
-	local WINDOW_BG =
-		Color3.fromRGB(30, 30, 30)
+	local WINDOW_BG = SETTINGS.Theme.WindowBackground
 
-	local PANEL_BG =
-		Color3.fromRGB(34, 34, 34)
+	local PANEL_BG = SETTINGS.Theme.PanelBackground
 
-	local TOP_BG =
-		Color3.fromRGB(38, 38, 38)
+	local TOP_BG = SETTINGS.Theme.TopBackground
 
-	local INPUT_BG =
-		Color3.fromRGB(45, 45, 45)
+	local INPUT_BG = SETTINGS.Theme.InputBackground
 
-	local BORDER =
-		Color3.fromRGB(62, 62, 62)
+	local BORDER = SETTINGS.Theme.Border
 
-	local TEXT =
-		Color3.fromRGB(212, 212, 212)
+	local TEXT = SETTINGS.Theme.Text
 
-	local MUTED =
-		Color3.fromRGB(145, 145, 145)
+	local MUTED = SETTINGS.Theme.Muted
 
-	local ACCENT =
-		Color3.fromRGB(110, 173, 255)
+	local ACCENT = SETTINGS.Theme.Accent
 
-	local COLORS = {
-		keyword = "#569CD6",
-		string = "#CE9178",
-		comment = "#6A9955",
-		number = "#B5CEA8",
-		functionName = "#DCDCAA",
-		normal = "#D4D4D4",
-		func = "rgb(110, 173, 255)",
-		rblx = "rgb(198, 174, 57)",
-	}
+	local COLORS = SETTINGS.SyntaxColors
 
 	-- ============================================================
 	-- KEYWORDS - same visual categories as Potassium IDE
@@ -286,9 +307,9 @@ return function(MainFrame, Console_2)
 	ViewerWindow.AnchorPoint =
 		Vector2.new(0.5, 0.5)
 	ViewerWindow.Position =
-		UDim2.new(0.58, 0, 0.54, 0)
+		SETTINGS.Window.Position
 	ViewerWindow.Size =
-		UDim2.fromOffset(800, 560)
+		UDim2.fromOffset(SETTINGS.Window.Width, SETTINGS.Window.Height)
 	ViewerWindow.BackgroundColor3 =
 		WINDOW_BG
 	ViewerWindow.BorderSizePixel = 0
@@ -655,7 +676,7 @@ return function(MainFrame, Console_2)
 			).Y
 		)
 
-	local VIEW_BUFFER_LINES = 20
+	local VIEW_BUFFER_LINES = SETTINGS.Viewport.BufferLines
 
 	local function escapeRichText(value)
 		value = value:gsub("&", "&amp;")
