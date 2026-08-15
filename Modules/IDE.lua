@@ -6228,19 +6228,322 @@ return function(MainFrame, Console_2)
 			-- ----------------------------------------------------
 
 			onExecute = function()
-				local success, result =
-				pcall(function()
-					return loadstring(
-						input.Text
-					)()
-				end)
+				-- Keep execution diagnostics inside this callback so none of
+				-- these helper locals consume registers in the giant main IDE
+				-- initializer.
+				local diagnostic =
+				CodingHolder:FindFirstChild(
+					"ExecutionDiagnostic"
+				)
 
-				if not success then
-					warn(
-						"[Potassium IDE] Execution error:",
-						result
+				if not diagnostic then
+					diagnostic =
+					Instance.new(
+						"TextLabel"
+					)
+
+					diagnostic.Name =
+					"ExecutionDiagnostic"
+
+					diagnostic.Visible = false
+					diagnostic.AnchorPoint =
+					Vector2.new(0, 1)
+
+					diagnostic.Position =
+					UDim2.new(
+						0,
+						8,
+						1,
+						-45
+					)
+
+					diagnostic.Size =
+					UDim2.new(
+						1,
+						-16,
+						0,
+						34
+					)
+
+					diagnostic.BackgroundColor3 =
+					Color3.fromRGB(
+						58,
+						31,
+						34
+					)
+
+					diagnostic.BackgroundTransparency =
+					0.08
+
+					diagnostic.BorderSizePixel = 0
+
+					diagnostic.TextColor3 =
+					Color3.fromRGB(
+						255,
+						180,
+						185
+					)
+
+					diagnostic.TextXAlignment =
+					Enum.TextXAlignment.Left
+
+					diagnostic.TextYAlignment =
+					Enum.TextYAlignment.Center
+
+					diagnostic.TextWrapped = true
+					diagnostic.Font =
+					Enum.Font.Code
+
+					diagnostic.TextSize = 12
+					diagnostic.ZIndex = 60
+					diagnostic.Parent =
+					CodingHolder
+
+					local padding =
+					Instance.new(
+						"UIPadding"
+					)
+
+					padding.PaddingLeft =
+					UDim.new(0, 9)
+
+					padding.PaddingRight =
+					UDim.new(0, 9)
+
+					padding.Parent =
+					diagnostic
+
+					local corner =
+					Instance.new(
+						"UICorner"
+					)
+
+					corner.CornerRadius =
+					UDim.new(0, 4)
+
+					corner.Parent =
+					diagnostic
+				end
+
+				local function extractEditorLine(
+					message
+				)
+					message =
+					tostring(
+						message or ""
+					)
+
+					local lineNumber =
+					message:match(
+						'%[string "PotassiumEditor"%]:(%d+):'
+					)
+
+					lineNumber =
+					lineNumber
+					or message:match(
+						"PotassiumEditor:(%d+):"
+					)
+
+					lineNumber =
+					lineNumber
+					or message:match(
+						"%[PotassiumEditor%]:(%d+):"
+					)
+
+					-- Common executor format:
+					-- [string "PotassiumEditor"]:17: ...
+					-- Do not blindly use arbitrary later traceback line
+					-- numbers because those can be IDE.lua:6500+.
+					return tonumber(
+						lineNumber
 					)
 				end
+
+				local function cleanExecutionMessage(
+					message
+				)
+					message =
+					tostring(
+						message
+						or "Unknown execution error"
+					)
+
+					message =
+					message:match(
+						"([^\n\r]+)"
+					)
+					or message
+
+					message =
+					message:gsub(
+						'^%[string "PotassiumEditor"%]:%d+:%s*',
+						""
+					)
+
+					message =
+					message:gsub(
+						"^PotassiumEditor:%d+:%s*",
+						""
+					)
+
+					message =
+					message:gsub(
+						"^%[PotassiumEditor%]:%d+:%s*",
+						""
+					)
+
+					return message
+				end
+
+				local function showEditorExecutionError(
+					message
+				)
+					local lineNumber =
+					extractEditorLine(
+						message
+					)
+
+					local cleanMessage =
+					cleanExecutionMessage(
+						message
+					)
+
+					if not lineNumber then
+						-- If an executor strips our chunk name, fall back
+						-- to line 1 rather than showing a fake IDE:6500
+						-- source position.
+						lineNumber = 1
+					end
+
+					local lineCount =
+					#getLines(
+						input.Text
+					)
+
+					lineNumber =
+					math.clamp(
+						lineNumber,
+						1,
+						math.max(
+							1,
+							lineCount
+						)
+					)
+
+					diagnostic.Text =
+					"Line "
+					.. tostring(
+						lineNumber
+					)
+					.. ": "
+					.. cleanMessage
+
+					diagnostic.Visible =
+					true
+
+					-- Preserve the normal static analysis results and append
+					-- the compile/runtime failure so the same underline
+					-- renderer is used.
+					currentErrors =
+					findErrors(
+						input.Text
+					)
+
+					table.insert(
+						currentErrors,
+						{
+							line =
+							lineNumber,
+
+							column = 1,
+
+							message =
+							"Execution: "
+							.. cleanMessage,
+						}
+					)
+
+					updateErrorUnderlines()
+
+					-- Jump directly to the failing editor source line.
+					local lineStart =
+					getLineStart(
+						input.Text,
+						lineNumber
+					)
+
+					input.CursorPosition =
+					math.clamp(
+						lineStart,
+						1,
+						#input.Text + 1
+					)
+
+					input.SelectionStart =
+					input.CursorPosition
+
+					logicalCursorPosition =
+					input.CursorPosition
+
+					task.defer(function()
+						if input.Parent then
+							input:CaptureFocus()
+							ensureCursorVisible()
+							updateEditorCursor()
+						end
+					end)
+				end
+
+				-- Clear any previous execution diagnostic before compiling.
+				diagnostic.Visible = false
+
+				currentErrors =
+				findErrors(
+					input.Text
+				)
+
+				updateErrorUnderlines()
+
+				-- Compile FIRST with a named chunk. Syntax errors now refer
+				-- to PotassiumEditor:<source line> rather than IDE.lua.
+				local compiled,
+				compileError =
+				loadstring(
+					input.Text,
+					"PotassiumEditor"
+				)
+				
+				if not compiled then
+					showEditorExecutionError(
+						compileError
+					)
+
+					return
+				end
+
+				-- Runtime failures are also kept inside the named editor
+				-- chunk. xpcall prevents the surrounding IDE callback from
+				-- becoming the error location shown to the user.
+				local success,
+				result =
+				xpcall(
+					compiled,
+					function(err)
+						return tostring(
+							err
+						)
+					end
+				)
+
+				if not success then
+					showEditorExecutionError(
+						result
+					)
+
+					return
+				end
+
+				diagnostic.Visible = false
 			end,
 
 			onClear = function()
@@ -6483,6 +6786,18 @@ return function(MainFrame, Console_2)
 	})
 
 	input:GetPropertyChangedSignal("Text"):Connect(function()
+		local executionDiagnostic =
+			CodingHolder:FindFirstChild(
+				"ExecutionDiagnostic"
+			)
+
+		if executionDiagnostic
+			and executionDiagnostic.Visible
+		then
+			executionDiagnostic.Visible =
+				false
+		end
+
 		invalidateFoldingCache()
 		invalidateHorizontalWidthCache()
 
