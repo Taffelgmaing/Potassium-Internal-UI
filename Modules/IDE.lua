@@ -6381,15 +6381,10 @@ return function(MainFrame, Console_2)
 							)()
 						end
 					)
-
+				
 				if not success then
 					warn(
 						"[Potassium IDE] Execution error:",
-						result
-					)
-				else
-					print(
-						"[Potassium IDE] Execution result:",
 						result
 					)
 				end
