@@ -25,6 +25,31 @@
 	the 200-local-register limit in the main IDE initializer.
 ]]
 
+-- ============================================================
+-- EASY EDIT SETTINGS
+-- ============================================================
+
+local SETTINGS = {
+	Window = {
+		MinWidth = 400,
+		MinHeight = 250,
+		MaxWidth = 1400,
+		MaxHeight = 900,
+		DragTweenTime = 0.2,
+	},
+
+	MenuKey = Enum.KeyCode.Delete,
+
+	Features = {
+		{key = "SmartEnter", name = "Smart Enter", default = false},
+		{key = "BracketMatching", name = "Brackets", default = true},
+		{key = "ErrorUnderline", name = "Errors", default = true},
+		{key = "CodeFolding", name = "Folding", default = true},
+		{key = "Autocomplete", name = "Autocomplete", default = true},
+		{key = "BracketAutoClose", name = "Auto Close", default = true},
+	},
+}
+
 local Minor = {}
 Minor.__index = Minor
 
@@ -37,43 +62,12 @@ local TweenService =
 local RunService =
 	game:GetService("RunService")
 
-local MIN_WIDTH = 400
-local MIN_HEIGHT = 250
-local MAX_WIDTH = 1400
-local MAX_HEIGHT = 900
+local MIN_WIDTH = SETTINGS.Window.MinWidth
+local MIN_HEIGHT = SETTINGS.Window.MinHeight
+local MAX_WIDTH = SETTINGS.Window.MaxWidth
+local MAX_HEIGHT = SETTINGS.Window.MaxHeight
 
-local FEATURE_DEFINITIONS = {
-	{
-		key = "SmartEnter",
-		name = "Smart Enter",
-		default = false,
-	},
-	{
-		key = "BracketMatching",
-		name = "Brackets",
-		default = true,
-	},
-	{
-		key = "ErrorUnderline",
-		name = "Errors",
-		default = true,
-	},
-	{
-		key = "CodeFolding",
-		name = "Folding",
-		default = true,
-	},
-	{
-		key = "Autocomplete",
-		name = "Autocomplete",
-		default = true,
-	},
-	{
-		key = "BracketAutoClose",
-		name = "Auto Close",
-		default = true,
-	},
-}
+local FEATURE_DEFINITIONS = SETTINGS.Features
 
 local function getKeyDisplayName(keyCode)
 	if keyCode == Enum.KeyCode.Delete then
@@ -149,7 +143,7 @@ function Minor.new(context)
 	self.callbacks = context
 
 	self.MenuKey =
-		Enum.KeyCode.Delete
+		SETTINGS.MenuKey
 
 	self.waitingForMenuKey = false
 
@@ -203,7 +197,7 @@ function Minor:_setupDragging()
 
 		TweenService:Create(
 			frame,
-			TweenInfo.new(0.2),
+			TweenInfo.new(SETTINGS.Window.DragTweenTime),
 			{
 				Position = position,
 			}
