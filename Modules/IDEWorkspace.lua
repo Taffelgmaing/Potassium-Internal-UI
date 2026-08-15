@@ -311,6 +311,7 @@ function Workspace:_createUI()
 		filePanel.BorderSizePixel = 0
 		filePanel.ZIndex = 21
 		filePanel.Parent = chrome
+		filePanel.BackgroundTransparency = 1
 
 		makeCorner(filePanel, 5)
 	end
