@@ -27,8 +27,46 @@ return function(MainFrame, Console_2)
         ✓ settings handling
 ]]
 
+	--[[
+		POTASSIUM IDE - FILE MAP
+		============================================================
+
+		Use Ctrl+F with the numbered section names below when debugging.
+
+		01  Services / root / configuration
+		02  Window focus / editor hierarchy
+		03  Editor UI / input / display / gutter
+		04  Theme, keywords and completion catalog
+		05  Runtime state and shared utilities
+		06  Folding and viewport mapping
+		07  Cursor, scrolling and input/display alignment
+		08  Dynamic symbol discovery and scope tracking
+		09  Syntax highlighting
+		10  Editor layout and chunked rendering
+		11  Error detection and error underlines
+		12  Bracket matching and gutter rendering
+		13  Smart Enter and autocomplete engine
+		14  Cursor navigation and bracket auto-close
+		15  Window dragging / resizing
+		16  Settings, execute, clear and console controls
+		17  Text-change pipeline and keyboard handling
+		18  Focus / font / optimized viewport refresh
+		19  Initialization
+
+		Debugging rule:
+		- UI creation lives near the top.
+		- Parsing / analysis systems live in the middle.
+		- Input event wiring lives near the bottom.
+		- Initialization is always the final section.
+
+		Execution order has intentionally NOT been rearranged because many
+		editor systems depend on forward declarations and state created above
+		them. The organization pass labels and groups the existing flow instead
+		of introducing risky dependency changes.
+	]]
+
 	-- ============================================================
-	-- SERVICES
+	-- [01] SERVICES
 	-- ============================================================
 
 	local Players = game:GetService("Players")
@@ -39,7 +77,7 @@ return function(MainFrame, Console_2)
 	local ContextActionService = game:GetService("ContextActionService")
 
 	-- ============================================================
-	-- ROOT
+	-- [02] ROOT / MAIN FRAME
 	-- ============================================================
 
 	local frame = MainFrame
@@ -51,7 +89,7 @@ return function(MainFrame, Console_2)
 	local CodingHolder = frame:WaitForChild("CodingHolder")
 
 	-- ============================================================
-	-- CONFIGURATION
+	-- [03] CONFIGURATION / FEATURE FLAGS
 	-- ============================================================
 
 	local MIN_WIDTH = 400
@@ -72,7 +110,7 @@ return function(MainFrame, Console_2)
 	}
 
 	-- ============================================================
-	-- OVERLAPPING
+	-- [04] WINDOW FOCUS / Z-ORDER
 	-- ============================================================
 
 	local function IDEINFOCUS()
@@ -82,23 +120,22 @@ return function(MainFrame, Console_2)
 		MainFrame.ZIndex = 5
 	end
 
-	local function CONSOLEINFOCUS()
-		if MainFrame.ZIndex == 5 then
-			MainFrame.ZIndex = 4
+
+	for i,v in pairs(MainFrame.Parent:GetChildren()) do
+		if v:IsA("ImageButton") then
+			v.MouseButton1Down:Connect(function()
+				for i,v in pairs(MainFrame.Parent:GetChildren()) do
+					if v:IsA("ImageButton") then
+						v.ZIndex = 10
+					end
+				end
+				v.ZIndex = 30
+			end)
 		end
-		Console_2.ZIndex = 5
 	end
 
-	MainFrame.MouseButton1Down:Connect(function()
-		IDEINFOCUS()
-	end)
-
-	Console_2.MouseButton1Down:Connect(function()
-		CONSOLEINFOCUS()
-	end)
-
 	-- ============================================================
-	-- EDITOR HIERARCHY
+	-- [05] EDITOR HIERARCHY
 	-- ============================================================
 
 	local EditorScroll = CodingHolder:FindFirstChild("EditorScroll")
@@ -152,7 +189,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- EDITOR ELEMENTS
+	-- [06] EDITOR ELEMENT REFERENCES
 	-- ============================================================
 
 	local gutter = EditorContent:FindFirstChild("Gutter")
@@ -219,7 +256,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- Z INDEX
+	-- [07] EDITOR Z-INDEX
 	-- ============================================================
 
 	EditorScroll.ZIndex = 1
@@ -231,7 +268,7 @@ return function(MainFrame, Console_2)
 	input.ZIndex = 5
 
 	-- ============================================================
-	-- UI SETUP
+	-- [08] TEXT INPUT / DISPLAY SETUP
 	-- ============================================================
 
 	input.MultiLine = true
@@ -262,7 +299,43 @@ return function(MainFrame, Console_2)
 	hlBar.Visible = false
 
 	-- ============================================================
-	-- MOUSE CAPTURE LAYER
+	-- MOUSE TEXT SELECTION OVERLAY
+	-- ============================================================
+
+	local selectionOverlay =
+		EditorContent:FindFirstChild(
+			"SelectionOverlay"
+		)
+
+	if not selectionOverlay then
+		selectionOverlay =
+			Instance.new("Frame")
+
+		selectionOverlay.Name =
+			"SelectionOverlay"
+
+		selectionOverlay.BackgroundTransparency = 1
+		selectionOverlay.BorderSizePixel = 0
+		selectionOverlay.Position = UDim2.fromOffset(0, 0)
+		selectionOverlay.Size = UDim2.fromScale(1, 1)
+		selectionOverlay.ZIndex = 3
+		selectionOverlay.Parent = EditorContent
+	end
+
+	local selectionFrames = {}
+
+	local function clearSelectionVisuals()
+		for _, selectionFrame in ipairs(
+			selectionFrames
+			) do
+			selectionFrame:Destroy()
+		end
+
+		table.clear(selectionFrames)
+	end
+
+	-- ============================================================
+	-- [09] MOUSE CAPTURE / CARET HIT TEST
 	-- ============================================================
 	--
 	-- The real TextBox must NOT receive mouse clicks directly.
@@ -297,7 +370,7 @@ return function(MainFrame, Console_2)
 	mouseCapture.ZIndex = 7
 
 	-- ============================================================
-	-- GUTTER LAYOUT
+	-- [10] GUTTER BASE SETUP
 	-- ============================================================
 
 	-- Gutter is manually positioned/virtualized. A UIListLayout would
@@ -308,7 +381,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- COLORS
+	-- [11] THEME / SYNTAX COLORS
 	-- ============================================================
 
 	local COLORS = {
@@ -319,12 +392,16 @@ return function(MainFrame, Console_2)
 		functionName = "#DCDCAA",
 		normal = "#D4D4D4",
 		func = "rgb(110, 173, 255)",
-		rblx = "rgb(198, 174, 57)"
+		rblx = "rgb(198, 174, 57)",
+
+		-- User-declared locals, parameters, loop variables and function
+		-- references. Kept separate from Roblox/global keywords.
+		symbol = "#4EC9B0",
 	}
 
 	--Color3.fromRGB(198, 174, 57)
 	-- ============================================================
-	-- KEYWORDS
+	-- [12] SYNTAX KEYWORD CATALOGS
 	-- ============================================================
 
 	local KEYWORDS = {
@@ -403,7 +480,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- AUTOCOMPLETE
+	-- [13] AUTOCOMPLETE CATALOG
 	-- ============================================================
 
 	local COMPLETIONS = {
@@ -480,7 +557,7 @@ return function(MainFrame, Console_2)
 	}
 
 	-- ============================================================
-	-- STATE
+	-- [14] EDITOR STATE
 	-- ============================================================
 
 	local currentErrors = {}
@@ -498,6 +575,11 @@ return function(MainFrame, Console_2)
 	local completionButtons = {}
 	local completionWords = {}
 
+	-- Symbols discovered from the user's source.
+	local dynamicSymbolSet = {}
+	local dynamicSymbolList = {}
+	local dynamicFunctionSet = {}
+
 	local selectedCompletion = 1
 
 	local highlightedLine = 1
@@ -508,7 +590,7 @@ return function(MainFrame, Console_2)
 	local COMPLETION_WIDTH = 220
 
 	-- ============================================================
-	-- UTILITY
+	-- [15] SHARED TEXT UTILITIES
 	-- ============================================================
 
 	local function escapeRichText(text)
@@ -643,7 +725,7 @@ return function(MainFrame, Console_2)
 
 
 	-- ============================================================
-	-- FOLDING
+	-- [16] FOLDING RULES
 	-- ============================================================
 
 	local function isBlockStart(line)
@@ -677,7 +759,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- FAST FOLDING CACHE
+	-- [17] FOLDING CACHE / LINE MAPPING
 	-- ============================================================
 
 	local foldEndByStart = {}
@@ -897,7 +979,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- KEEP INPUT AND DISPLAY PERFECTLY ALIGNED
+	-- [18] INPUT / DISPLAY ALIGNMENT
 	-- ============================================================
 
 	local function syncInputAndDisplay()
@@ -924,7 +1006,7 @@ return function(MainFrame, Console_2)
 	syncInputAndDisplay()
 
 	-- ============================================================
-	-- CUSTOM EDITOR CURSOR
+	-- [19] CUSTOM EDITOR CURSOR
 	-- ============================================================
 
 	local CURSOR_OFFSET_X = 4
@@ -1015,7 +1097,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- KEEP THE CARET INSIDE THE SCROLLING VIEWPORT
+	-- [20] CARET AUTO-SCROLL
 	-- ============================================================
 
 	local AUTO_SCROLL_PADDING_X = 36
@@ -1149,7 +1231,1037 @@ return function(MainFrame, Console_2)
 	end)
 
 	-- ============================================================
-	-- SYNTAX HIGHLIGHTING
+	-- [21] DYNAMIC SYMBOL DISCOVERY / SCOPE ANALYSIS
+	-- ============================================================
+
+	-- This lexer only needs enough information to discover identifiers.
+	-- It deliberately ignores comments and string contents so text such as
+	-- "local fakeVariable" inside a string does not become autocomplete.
+	local function tokenizeSymbols(source)
+		local tokens = {}
+		local i = 1
+		local length = #source
+		local line = 1
+
+		local function add(value, kind)
+			table.insert(tokens, {
+				value = value,
+				kind = kind,
+				line = line,
+			})
+		end
+
+		local function isIdentifierStart(character)
+			return character ~= ""
+				and character:match("[%a_]") ~= nil
+		end
+
+		local function isIdentifierPart(character)
+			return character ~= ""
+				and character:match("[%w_]") ~= nil
+		end
+
+		local function longBracketEquals(position)
+			if source:sub(position, position) ~= "[" then
+				return nil
+			end
+
+			local cursor = position + 1
+			local equals = 0
+
+			while source:sub(cursor, cursor) == "=" do
+				equals += 1
+				cursor += 1
+			end
+
+			if source:sub(cursor, cursor) == "[" then
+				return equals
+			end
+
+			return nil
+		end
+
+		while i <= length do
+			local character = source:sub(i, i)
+
+			if character == "\n" then
+				add("\n", "newline")
+				line += 1
+				i += 1
+
+			elseif character:match("%s") then
+				i += 1
+
+			elseif source:sub(i, i + 1) == "--" then
+				local longEquals =
+					longBracketEquals(i + 2)
+
+				if longEquals ~= nil then
+					local closing =
+						"]"
+						.. string.rep("=", longEquals)
+						.. "]"
+
+					local openingLength =
+						2 + longEquals + 2
+
+					local searchFrom =
+						i + openingLength
+
+					local closeStart =
+						source:find(
+							closing,
+							searchFrom,
+							true
+						)
+
+					local finish =
+						closeStart
+						and (
+							closeStart
+							+ #closing
+							- 1
+						)
+						or length
+
+					local segment =
+						source:sub(i, finish)
+
+					local _, newlines =
+						segment:gsub("\n", "")
+
+					line += newlines
+					i = finish + 1
+				else
+					local newline =
+						source:find(
+							"\n",
+							i,
+							true
+						)
+
+					if newline then
+						i = newline
+					else
+						break
+					end
+				end
+
+			elseif character == "\""
+				or character == "'"
+				or character == "`"
+			then
+				local quote = character
+				i += 1
+
+				while i <= length do
+					local current =
+						source:sub(i, i)
+
+					if current == "\\" then
+						i += 2
+
+					elseif current == quote then
+						i += 1
+						break
+
+					elseif current == "\n" then
+						line += 1
+
+						if quote ~= "`" then
+							break
+						end
+
+						i += 1
+
+					else
+						i += 1
+					end
+				end
+
+			elseif character == "[" then
+				local longEquals =
+					longBracketEquals(i)
+
+				if longEquals ~= nil then
+					local closing =
+						"]"
+						.. string.rep("=", longEquals)
+						.. "]"
+
+					local openingLength =
+						longEquals + 2
+
+					local closeStart =
+						source:find(
+							closing,
+							i + openingLength,
+							true
+						)
+
+					local finish =
+						closeStart
+						and (
+							closeStart
+							+ #closing
+							- 1
+						)
+						or length
+
+					local segment =
+						source:sub(i, finish)
+
+					local _, newlines =
+						segment:gsub("\n", "")
+
+					line += newlines
+					i = finish + 1
+				else
+					add("[", "symbol")
+					i += 1
+				end
+
+			elseif isIdentifierStart(character) then
+				local start = i
+				i += 1
+
+				while i <= length
+					and isIdentifierPart(
+						source:sub(i, i)
+					)
+				do
+					i += 1
+				end
+
+				add(
+					source:sub(start, i - 1),
+					"identifier"
+				)
+
+			elseif character:match("%d") then
+				local start = i
+				i += 1
+
+				while i <= length
+					and source:sub(i, i):match(
+						"[%w_%.]"
+					)
+				do
+					i += 1
+				end
+
+				add(
+					source:sub(start, i - 1),
+					"number"
+				)
+
+			else
+				local two =
+					source:sub(i, i + 1)
+
+				if two == "::"
+					or two == "->"
+					or two == ".."
+					or two == "=="
+					or two == "~="
+					or two == "<="
+					or two == ">="
+					or two == "+="
+					or two == "-="
+					or two == "*="
+					or two == "/="
+					or two == "%="
+					or two == "^="
+				then
+					add(two, "symbol")
+					i += 2
+				else
+					add(character, "symbol")
+					i += 1
+				end
+			end
+		end
+
+		return tokens
+	end
+
+	local RESERVED_DECLARATION_WORDS = {
+		["local"] = true,
+		["function"] = true,
+		["if"] = true,
+		["then"] = true,
+		["else"] = true,
+		["elseif"] = true,
+		["end"] = true,
+		["for"] = true,
+		["while"] = true,
+		["do"] = true,
+		["repeat"] = true,
+		["until"] = true,
+		["return"] = true,
+		["break"] = true,
+		["continue"] = true,
+		["and"] = true,
+		["or"] = true,
+		["not"] = true,
+		["true"] = true,
+		["false"] = true,
+		["nil"] = true,
+		["in"] = true,
+	}
+
+	local function collectDeclaredSymbols(source)
+		local tokens =
+			tokenizeSymbols(source)
+
+		local symbols = {}
+		local functions = {}
+
+		local function addSymbol(name, isFunction)
+			if not name
+				or name == ""
+				or RESERVED_DECLARATION_WORDS[name]
+			then
+				return
+			end
+
+			symbols[name] = true
+
+			if isFunction then
+				functions[name] = true
+			end
+		end
+
+		local function isIdentifier(token)
+			return token
+				and token.kind == "identifier"
+		end
+
+		local index = 1
+
+		while index <= #tokens do
+			local token = tokens[index]
+
+			-- local variable declarations:
+			-- local player = ...
+			-- local a, b, c = ...
+			-- local value: number = ...
+			if token.value == "local" then
+				local nextToken =
+					tokens[index + 1]
+
+				if nextToken
+					and nextToken.value == "function"
+				then
+					local nameToken =
+						tokens[index + 2]
+
+					if isIdentifier(nameToken) then
+						addSymbol(
+							nameToken.value,
+							true
+						)
+					end
+				else
+					local cursor =
+						index + 1
+
+					while cursor <= #tokens do
+						local current =
+							tokens[cursor]
+
+						if current.value == "="
+							or current.value == "\n"
+							or current.value == ";"
+						then
+							break
+						end
+
+						if isIdentifier(current) then
+							-- Only the first identifier in each comma
+							-- separated declaration is a variable name.
+							local previous =
+								tokens[cursor - 1]
+
+							if cursor == index + 1
+								or (
+									previous
+										and previous.value == ","
+								)
+							then
+								addSymbol(
+									current.value,
+									false
+								)
+							end
+						end
+
+						cursor += 1
+					end
+				end
+
+				-- Named functions:
+				-- function Test()
+				-- function Module.Test()
+				-- function Object:Method()
+			elseif token.value == "function" then
+				local cursor =
+					index + 1
+
+				local lastIdentifier = nil
+
+				while cursor <= #tokens do
+					local current =
+						tokens[cursor]
+
+					if current.value == "(" then
+						break
+					end
+
+					if current.value == "\n"
+						or current.value == "="
+					then
+						break
+					end
+
+					if isIdentifier(current) then
+						lastIdentifier =
+							current.value
+					end
+
+					cursor += 1
+				end
+
+				if lastIdentifier then
+					addSymbol(
+						lastIdentifier,
+						true
+					)
+				end
+
+				-- Function parameters.
+				if tokens[cursor]
+					and tokens[cursor].value == "("
+				then
+					cursor += 1
+					local nesting = 1
+					local expectingParameter = true
+
+					while cursor <= #tokens
+						and nesting > 0
+					do
+						local current =
+							tokens[cursor]
+
+						if current.value == "(" then
+							nesting += 1
+
+						elseif current.value == ")" then
+							nesting -= 1
+
+						elseif nesting == 1 then
+							if current.value == "," then
+								expectingParameter = true
+
+							elseif expectingParameter
+								and isIdentifier(current)
+							then
+								addSymbol(
+									current.value,
+									false
+								)
+
+								expectingParameter = false
+							end
+						end
+
+						cursor += 1
+					end
+				end
+
+				-- Loop variables:
+				-- for i = 1, 10 do
+				-- for key, value in pairs(tbl) do
+			elseif token.value == "for" then
+				local cursor =
+					index + 1
+
+				while cursor <= #tokens do
+					local current =
+						tokens[cursor]
+
+					if current.value == "="
+						or current.value == "in"
+						or current.value == "do"
+						or current.value == "\n"
+					then
+						break
+					end
+
+					if isIdentifier(current) then
+						local previous =
+							tokens[cursor - 1]
+
+						if cursor == index + 1
+							or (
+								previous
+									and previous.value == ","
+							)
+						then
+							addSymbol(
+								current.value,
+								false
+							)
+						end
+					end
+
+					cursor += 1
+				end
+
+				-- Non-local/global assignments.
+				--
+				-- A lot of Roblox UI code declares state like this:
+				--
+				--     SomeToggle:Toggle(..., function(t)
+				--         Selected_Auto_Buy_Easter = t
+				--     end)
+				--
+				-- There is no `local`, but the identifier is still a real
+				-- script-level variable and should become a dynamic suggestion.
+			elseif isIdentifier(token)
+				and nextToken
+				and (
+					nextToken.value == "="
+						or nextToken.value == "+="
+						or nextToken.value == "-="
+						or nextToken.value == "*="
+						or nextToken.value == "/="
+						or nextToken.value == "%="
+						or nextToken.value == "^="
+				)
+					and not (
+						previous
+						and (
+							previous.value == "."
+							or previous.value == ":"
+							or previous.value == "::"
+						)
+					)
+			then
+				addSymbol(
+					token.value,
+					false
+				)
+			end
+
+			index += 1
+		end
+
+		local list = {}
+
+		for name in pairs(symbols) do
+			table.insert(list, name)
+		end
+
+		table.sort(
+			list,
+			function(a, b)
+				return a:lower()
+					< b:lower()
+			end
+		)
+
+		return symbols, list, functions
+	end
+
+	-- Returns only symbols that are actually in scope at the END of
+	-- the supplied source. This is used by autocomplete with the source
+	-- sliced at the cursor position.
+	--
+	-- Important difference from collectDeclaredSymbols():
+	-- function parameters and locals inside a function disappear when that
+	-- function's matching `end` is passed.
+	local function collectAvailableSymbols(source)
+		local tokens =
+			tokenizeSymbols(source)
+
+		local function isIdentifier(token)
+			return token
+				and token.kind == "identifier"
+		end
+
+		local scopes = {
+			{
+				symbols = {},
+				functions = {},
+			},
+		}
+
+		local blocks = {}
+
+		local function currentScope()
+			return scopes[#scopes]
+		end
+
+		local function pushScope()
+			table.insert(scopes, {
+				symbols = {},
+				functions = {},
+			})
+		end
+
+		local function popScope()
+			if #scopes > 1 then
+				table.remove(scopes)
+			end
+		end
+
+		local function symbolExistsInOpenScopes(name)
+			for scopeIndex = #scopes, 1, -1 do
+				if scopes[scopeIndex].symbols[name] then
+					return true
+				end
+			end
+
+			return false
+		end
+
+		local function addGlobalSymbol(
+			name,
+			isFunction
+		)
+			if not name
+				or name == ""
+				or RESERVED_DECLARATION_WORDS[name]
+			then
+				return
+			end
+
+			scopes[1].symbols[name] = true
+
+			if isFunction then
+				scopes[1].functions[name] = true
+			end
+		end
+
+		local function addToCurrentScope(
+			name,
+			isFunction
+		)
+			if not name
+				or name == ""
+				or RESERVED_DECLARATION_WORDS[name]
+			then
+				return
+			end
+
+			local scope =
+				currentScope()
+
+			scope.symbols[name] = true
+
+			if isFunction then
+				scope.functions[name] = true
+			end
+		end
+
+		local function pushBlock(
+			blockType,
+			createsScope,
+			expectsDo
+		)
+			if createsScope then
+				pushScope()
+			end
+
+			table.insert(blocks, {
+				type = blockType,
+				createsScope =
+					createsScope == true,
+				expectsDo =
+					expectsDo == true,
+				sawDo = false,
+			})
+		end
+
+		local function popBlock()
+			local block =
+				blocks[#blocks]
+
+			if not block then
+				return
+			end
+
+			table.remove(blocks)
+
+			if block.createsScope then
+				popScope()
+			end
+		end
+
+		local function parseFunctionParameters(
+			functionIndex
+		)
+			local cursor =
+				functionIndex + 1
+
+			-- Skip a named function path such as:
+			-- function Module.Sub:Method(
+			while cursor <= #tokens
+				and tokens[cursor].value ~= "("
+				and tokens[cursor].value ~= "\n"
+			do
+				cursor += 1
+			end
+
+			if not tokens[cursor]
+				or tokens[cursor].value ~= "("
+			then
+				return
+			end
+
+			cursor += 1
+
+			local nesting = 1
+			local expectingParameter = true
+
+			while cursor <= #tokens
+				and nesting > 0
+			do
+				local current =
+					tokens[cursor]
+
+				if current.value == "(" then
+					nesting += 1
+
+				elseif current.value == ")" then
+					nesting -= 1
+
+				elseif nesting == 1 then
+					if current.value == "," then
+						expectingParameter = true
+
+					elseif expectingParameter
+						and isIdentifier(current)
+					then
+						addToCurrentScope(
+							current.value,
+							false
+						)
+
+						expectingParameter = false
+					end
+				end
+
+				cursor += 1
+			end
+		end
+
+		local index = 1
+
+		while index <= #tokens do
+			local token =
+				tokens[index]
+
+			local value =
+				token.value
+
+			local previous =
+				tokens[index - 1]
+
+			local nextToken =
+				tokens[index + 1]
+
+			if value == "local" then
+				if nextToken
+					and nextToken.value
+					== "function"
+				then
+					local nameToken =
+						tokens[index + 2]
+
+					if isIdentifier(nameToken) then
+						-- local function Foo() is declared in the OUTER
+						-- scope, while its parameters belong to the new
+						-- function scope.
+						addToCurrentScope(
+							nameToken.value,
+							true
+						)
+					end
+
+				else
+					local cursor =
+						index + 1
+
+					local expectingName = true
+
+					while cursor <= #tokens do
+						local current =
+							tokens[cursor]
+
+						if current.value == "="
+							or current.value == "\n"
+							or current.value == ";"
+						then
+							break
+						end
+
+						if current.value == "," then
+							expectingName = true
+
+						elseif expectingName
+							and isIdentifier(current)
+						then
+							addToCurrentScope(
+								current.value,
+								false
+							)
+
+							expectingName = false
+						end
+
+						cursor += 1
+					end
+				end
+
+			elseif value == "function" then
+				-- Non-local named functions are useful suggestions too.
+				if not (
+					previous
+						and previous.value == "local"
+					) then
+					local cursor =
+						index + 1
+
+					local lastIdentifier = nil
+
+					while cursor <= #tokens do
+						local current =
+							tokens[cursor]
+
+						if current.value == "("
+							or current.value == "\n"
+						then
+							break
+						end
+
+						if isIdentifier(current) then
+							lastIdentifier =
+								current.value
+						end
+
+						cursor += 1
+					end
+
+					if lastIdentifier then
+						addToCurrentScope(
+							lastIdentifier,
+							true
+						)
+					end
+				end
+
+				-- Everything declared below this point belongs to the
+				-- function scope until this function's matching `end`.
+				pushBlock(
+					"function",
+					true,
+					false
+				)
+
+				parseFunctionParameters(
+					index
+				)
+
+			elseif value == "if" then
+				pushBlock(
+					"if",
+					true,
+					false
+				)
+
+			elseif value == "while" then
+				pushBlock(
+					"while",
+					true,
+					true
+				)
+
+			elseif value == "for" then
+				pushBlock(
+					"for",
+					true,
+					true
+				)
+
+				-- Loop variables belong only to the loop scope.
+				local cursor =
+					index + 1
+
+				local expectingName = true
+
+				while cursor <= #tokens do
+					local current =
+						tokens[cursor]
+
+					if current.value == "="
+						or current.value == "in"
+						or current.value == "do"
+						or current.value == "\n"
+					then
+						break
+					end
+
+					if current.value == "," then
+						expectingName = true
+
+					elseif expectingName
+						and isIdentifier(current)
+					then
+						addToCurrentScope(
+							current.value,
+							false
+						)
+
+						expectingName = false
+					end
+
+					cursor += 1
+				end
+
+				-- Bare assignment without `local` creates/uses a script-global
+				-- variable in normal Luau semantics.
+				--
+				-- If the name already belongs to an open local/parameter/loop
+				-- scope, do NOT promote it to global. Otherwise remember it in
+				-- the root scope so later callbacks/functions can suggest it.
+			elseif isIdentifier(token)
+				and nextToken
+				and (
+					nextToken.value == "="
+						or nextToken.value == "+="
+						or nextToken.value == "-="
+						or nextToken.value == "*="
+						or nextToken.value == "/="
+						or nextToken.value == "%="
+						or nextToken.value == "^="
+				)
+					and not (
+						previous
+						and (
+							previous.value == "."
+							or previous.value == ":"
+							or previous.value == "::"
+						)
+					)
+			then
+				if not symbolExistsInOpenScopes(
+					token.value
+					) then
+					addGlobalSymbol(
+						token.value,
+						false
+					)
+				end
+
+			elseif value == "repeat" then
+				pushBlock(
+					"repeat",
+					true,
+					false
+				)
+
+			elseif value == "do" then
+				local top =
+					blocks[#blocks]
+
+				-- while/for already opened their scope when their keyword
+				-- was encountered, so their `do` must not create another
+				-- block.
+				if top
+					and top.expectsDo
+					and not top.sawDo
+				then
+					top.sawDo = true
+				else
+					pushBlock(
+						"do",
+						true,
+						false
+					)
+				end
+
+			elseif value == "until" then
+				local top =
+					blocks[#blocks]
+
+				if top
+					and top.type == "repeat"
+				then
+					popBlock()
+				end
+
+			elseif value == "end" then
+				popBlock()
+			end
+
+			index += 1
+		end
+
+		-- Merge only scopes that are STILL OPEN at the cursor.
+		local availableSet = {}
+		local availableFunctions = {}
+
+		for _, scope in ipairs(scopes) do
+			for name in pairs(
+				scope.symbols
+				) do
+				availableSet[name] = true
+			end
+
+			for name in pairs(
+				scope.functions
+				) do
+				availableFunctions[name] = true
+			end
+		end
+
+		local availableList = {}
+
+		for name in pairs(
+			availableSet
+			) do
+			table.insert(
+				availableList,
+				name
+			)
+		end
+
+		table.sort(
+			availableList,
+			function(a, b)
+				return a:lower()
+					< b:lower()
+			end
+		)
+
+		return availableSet,
+			availableList,
+			availableFunctions
+	end
+
+	local function rebuildDynamicSymbols(source)
+		dynamicSymbolSet,
+			dynamicSymbolList,
+			dynamicFunctionSet =
+			collectDeclaredSymbols(
+				source or ""
+			)
+	end
+
+	-- ============================================================
+	-- [22] SYNTAX HIGHLIGHTING
 	-- ============================================================
 
 	local function highlight(code)
@@ -1227,6 +2339,18 @@ return function(MainFrame, Console_2)
 							escapeRichText(word)
 						)
 					)
+
+				elseif dynamicSymbolSet[word] then
+					-- Any reference to a user-declared local, function,
+					-- parameter or loop variable is colored green.
+					table.insert(
+						result,
+						('<font color="%s">%s</font>'):format(
+							COLORS.symbol,
+							escapeRichText(word)
+						)
+					)
+
 				elseif keywordfunctionsSet[word] then
 					table.insert(
 						result,
@@ -1285,7 +2409,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- FORWARD DECLARATIONS
+	-- [23] FORWARD DECLARATIONS
 	-- ============================================================
 
 	local updateEditorLayout
@@ -1298,7 +2422,7 @@ return function(MainFrame, Console_2)
 	local clearAutocomplete
 
 	-- ============================================================
-	-- HORIZONTAL CONTENT WIDTH
+	-- [24] HORIZONTAL CONTENT MEASUREMENT
 	-- ============================================================
 
 	local HORIZONTAL_END_PADDING = 60
@@ -1357,7 +2481,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- EDITOR LAYOUT
+	-- [25] EDITOR LAYOUT
 	-- ============================================================
 
 	updateEditorLayout = function()
@@ -1435,7 +2559,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- CHUNKED DISPLAY
+	-- [26] CHUNKED / VIRTUALIZED DISPLAY
 	-- ============================================================
 
 	-- Virtualized display: only syntax-highlight the lines close to the
@@ -1519,261 +2643,1586 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- ERROR DETECTION
+	-- [27] ERROR DETECTION / LIVE PARSER
 	-- ============================================================
 
 	local function findErrors(code)
+		--[[
+			More complete live Luau syntax checker.
+
+			This is intentionally a lightweight parser rather than a handful
+			of regex checks. It tokenizes what is currently typed, ignores
+			comments/strings correctly, validates punctuation/operators, and
+			tracks Luau blocks.
+
+			It catches, among other things:
+				:
+				object:
+				object.
+				local =
+				local 123
+				x =
+				= x
+				x + *
+				@
+				if then
+				if x
+				elseif without if
+				else without if
+				duplicate else
+				while x
+				for x
+				function test
+				unexpected end/until
+				break/continue outside loops
+				unclosed strings/comments/brackets
+				mismatched brackets
+				missing end/until
+		]]
+
 		local errors = {}
+		local errorKeys = {}
+
+		local function addError(line, column, message)
+			line = math.max(1, line or 1)
+			column = math.max(1, column or 1)
+
+			local key =
+				tostring(line)
+				.. ":"
+				.. tostring(column)
+				.. ":"
+				.. message
+
+			if errorKeys[key] then
+				return
+			end
+
+			errorKeys[key] = true
+
+			table.insert(errors, {
+				line = line,
+				column = column,
+				message = message,
+			})
+		end
+
+		-- ========================================================
+		-- TOKENIZER
+		-- ========================================================
+
+		local tokens = {}
+
+		local position = 1
+		local line = 1
+		local column = 1
+		local length = #code
+
+		local function peek(offset)
+			offset = offset or 0
+
+			local index =
+				position + offset
+
+			if index < 1
+				or index > length
+			then
+				return ""
+			end
+
+			return code:sub(index, index)
+		end
+
+		local function advance()
+			local character =
+				peek()
+
+			position += 1
+
+			if character == "\n" then
+				line += 1
+				column = 1
+			else
+				column += 1
+			end
+
+			return character
+		end
+
+		local function addToken(
+			kind,
+			value,
+			tokenLine,
+			tokenColumn
+		)
+			table.insert(tokens, {
+				kind = kind,
+				value = value,
+				line = tokenLine,
+				column = tokenColumn,
+			})
+		end
+
+		local function isIdentifierStart(character)
+			return character ~= ""
+				and character:match(
+					"[%a_]"
+				) ~= nil
+		end
+
+		local function isIdentifierPart(character)
+			return character ~= ""
+				and character:match(
+					"[%w_]"
+				) ~= nil
+		end
+
+		local function getLongBracketEquals(atPosition)
+			if code:sub(
+				atPosition,
+				atPosition
+				) ~= "["
+			then
+				return nil
+			end
+
+			local cursor =
+				atPosition + 1
+
+			local equalsCount = 0
+
+			while code:sub(
+				cursor,
+				cursor
+				) == "="
+			do
+				equalsCount += 1
+				cursor += 1
+			end
+
+			if code:sub(
+				cursor,
+				cursor
+				) == "["
+			then
+				return equalsCount
+			end
+
+			return nil
+		end
+
+		local function consumeLongBracket(
+			equalsCount,
+			startLine,
+			startColumn,
+			description
+		)
+			-- Consume opening [=*[.
+			advance()
+
+			for _ = 1, equalsCount do
+				advance()
+			end
+
+			advance()
+
+			local closing =
+				"]"
+				.. string.rep(
+					"=",
+					equalsCount
+				)
+				.. "]"
+
+			local closed = false
+
+			while position <= length do
+				if code:sub(
+					position,
+					position
+						+ #closing
+					- 1
+					) == closing
+				then
+					for _ = 1, #closing do
+						advance()
+					end
+
+					closed = true
+					break
+				end
+
+				advance()
+			end
+
+			if not closed then
+				addError(
+					startLine,
+					startColumn,
+					"Unclosed "
+						.. description
+				)
+			end
+
+			return closed
+		end
+
+		while position <= length do
+			local character = peek()
+
+			-- WHITESPACE
+			if character == " "
+				or character == "\t"
+				or character == "\r"
+				or character == "\n"
+			then
+				advance()
+
+				-- COMMENTS
+			elseif character == "-"
+				and peek(1) == "-"
+			then
+				local commentLine = line
+				local commentColumn = column
+
+				advance()
+				advance()
+
+				local longEquals =
+					getLongBracketEquals(
+						position
+					)
+
+				if longEquals ~= nil then
+					consumeLongBracket(
+						longEquals,
+						commentLine,
+						commentColumn,
+						"block comment"
+					)
+				else
+					while position <= length
+						and peek() ~= "\n"
+					do
+						advance()
+					end
+				end
+
+				-- QUOTED STRINGS
+			elseif character == "\""
+				or character == "'"
+				or character == "`"
+			then
+				local quote = character
+				local stringLine = line
+				local stringColumn = column
+
+				advance()
+
+				local closed = false
+
+				while position <= length do
+					local current = peek()
+
+					if current == "\\" then
+						advance()
+
+						if position <= length then
+							advance()
+						end
+
+					elseif current == quote then
+						advance()
+						closed = true
+						break
+
+					elseif current == "\n"
+						and quote ~= "`"
+					then
+						break
+
+					else
+						advance()
+					end
+				end
+
+				if not closed then
+					addError(
+						stringLine,
+						stringColumn,
+						"Unclosed string"
+					)
+				end
+
+				addToken(
+					"string",
+					"<string>",
+					stringLine,
+					stringColumn
+				)
+
+				-- LONG STRINGS
+			elseif character == "[" then
+				local longEquals =
+					getLongBracketEquals(
+						position
+					)
+
+				if longEquals ~= nil then
+					local stringLine = line
+					local stringColumn = column
+
+					consumeLongBracket(
+						longEquals,
+						stringLine,
+						stringColumn,
+						"long string"
+					)
+
+					addToken(
+						"string",
+						"<string>",
+						stringLine,
+						stringColumn
+					)
+				else
+					addToken(
+						"symbol",
+						"[",
+						line,
+						column
+					)
+
+					advance()
+				end
+
+				-- IDENTIFIERS / KEYWORDS
+			elseif isIdentifierStart(
+				character
+				)
+			then
+				local tokenLine = line
+				local tokenColumn = column
+				local startPosition =
+					position
+
+				advance()
+
+				while isIdentifierPart(
+					peek()
+					)
+				do
+					advance()
+				end
+
+				local value =
+					code:sub(
+						startPosition,
+						position - 1
+					)
+
+				addToken(
+					"identifier",
+					value,
+					tokenLine,
+					tokenColumn
+				)
+
+				-- NUMBERS
+			elseif character:match("%d") then
+				local tokenLine = line
+				local tokenColumn = column
+				local startPosition =
+					position
+
+				-- Hexadecimal.
+				if character == "0"
+					and (
+						peek(1) == "x"
+							or peek(1) == "X"
+					)
+				then
+					advance()
+					advance()
+
+					local digits = 0
+
+					while peek():match(
+						"[%da-fA-F_]"
+						)
+					do
+						digits += 1
+						advance()
+					end
+
+					if digits == 0 then
+						addError(
+							tokenLine,
+							tokenColumn,
+							"Invalid hexadecimal number"
+						)
+					end
+
+					-- Binary.
+				elseif character == "0"
+					and (
+						peek(1) == "b"
+							or peek(1) == "B"
+					)
+				then
+					advance()
+					advance()
+
+					local digits = 0
+
+					while peek():match(
+						"[01_]"
+						)
+					do
+						digits += 1
+						advance()
+					end
+
+					if digits == 0 then
+						addError(
+							tokenLine,
+							tokenColumn,
+							"Invalid binary number"
+						)
+					end
+
+				else
+					while peek():match(
+						"[%d_]"
+						)
+					do
+						advance()
+					end
+
+					if peek() == "."
+						and peek(1) ~= "."
+					then
+						advance()
+
+						while peek():match(
+							"[%d_]"
+							)
+						do
+							advance()
+						end
+					end
+
+					if peek() == "e"
+						or peek() == "E"
+					then
+						advance()
+
+						if peek() == "+"
+							or peek() == "-"
+						then
+							advance()
+						end
+
+						local exponentDigits = 0
+
+						while peek():match(
+							"[%d_]"
+							)
+						do
+							exponentDigits += 1
+							advance()
+						end
+
+						if exponentDigits == 0 then
+							addError(
+								tokenLine,
+								tokenColumn,
+								"Invalid number exponent"
+							)
+						end
+					end
+				end
+
+				addToken(
+					"number",
+					code:sub(
+						startPosition,
+						position - 1
+					),
+					tokenLine,
+					tokenColumn
+				)
+
+			else
+				local tokenLine = line
+				local tokenColumn = column
+
+				local three =
+					code:sub(
+						position,
+						position + 2
+					)
+
+				local two =
+					code:sub(
+						position,
+						position + 1
+					)
+
+				if three == "..." then
+					addToken(
+						"symbol",
+						"...",
+						tokenLine,
+						tokenColumn
+					)
+
+					advance()
+					advance()
+					advance()
+
+				elseif two == "::"
+					or two == "=="
+					or two == "~="
+					or two == "<="
+					or two == ">="
+					or two == "+="
+					or two == "-="
+					or two == "*="
+					or two == "/="
+					or two == "%="
+					or two == "^="
+					or two == ".."
+					or two == "//"
+					or two == "->"
+				then
+					addToken(
+						"symbol",
+						two,
+						tokenLine,
+						tokenColumn
+					)
+
+					advance()
+					advance()
+
+				elseif character:match(
+					"[%(%){%}%]%[%+%-%*/%%%^#=<>;,%.:%?]"
+					)
+				then
+					addToken(
+						"symbol",
+						character,
+						tokenLine,
+						tokenColumn
+					)
+
+					advance()
+
+				else
+					addError(
+						tokenLine,
+						tokenColumn,
+						"Unexpected character '"
+							.. character
+							.. "'"
+					)
+
+					advance()
+				end
+			end
+		end
+
+		-- ========================================================
+		-- TOKEN HELPERS
+		-- ========================================================
+
+		local function tokenAt(index)
+			return tokens[index]
+		end
+
+		local function previousToken(index)
+			return tokenAt(index - 1)
+		end
+
+		local function nextToken(index)
+			return tokenAt(index + 1)
+		end
+
+		local function isIdentifierToken(token)
+			return token
+				and token.kind
+				== "identifier"
+		end
+
+		local function isValueEndingToken(token)
+			if not token then
+				return false
+			end
+
+			if token.kind == "identifier"
+				or token.kind == "number"
+				or token.kind == "string"
+			then
+				return true
+			end
+
+			return token.value == ")"
+				or token.value == "]"
+				or token.value == "}"
+				or token.value == "..."
+		end
+
+		local function isValueStartingToken(token)
+			if not token then
+				return false
+			end
+
+			if token.kind == "identifier"
+				or token.kind == "number"
+				or token.kind == "string"
+			then
+				return true
+			end
+
+			return token.value == "("
+				or token.value == "{"
+				or token.value == "-"
+				or token.value == "#"
+				or token.value == "..."
+				or token.value == "function"
+		end
+
+		local binaryOperators = {
+			["+"] = true,
+			["-"] = true,
+			["*"] = true,
+			["/"] = true,
+			["//"] = true,
+			["%"] = true,
+			["^"] = true,
+			[".."] = true,
+			["=="] = true,
+			["~="] = true,
+			["<"] = true,
+			["<="] = true,
+			[">"] = true,
+			[">="] = true,
+			["and"] = true,
+			["or"] = true,
+		}
+
+		local assignmentOperators = {
+			["="] = true,
+			["+="] = true,
+			["-="] = true,
+			["*="] = true,
+			["/="] = true,
+			["%="] = true,
+			["^="] = true,
+		}
+
+		local statementBoundaryKeywords = {
+			["then"] = true,
+			["do"] = true,
+			["else"] = true,
+			["elseif"] = true,
+			["end"] = true,
+			["until"] = true,
+		}
+
+		local function findKeywordAhead(
+			startIndex,
+			keyword,
+			maxLines
+		)
+			local startToken =
+				tokenAt(startIndex)
+
+			if not startToken then
+				return nil
+			end
+
+			local startLine =
+				startToken.line
+
+			for index =
+				startIndex + 1,
+				#tokens
+			do
+				local token =
+					tokenAt(index)
+
+				if maxLines
+					and token.line
+					> startLine + maxLines
+				then
+					return nil
+				end
+
+				if token.value == keyword then
+					return index
+				end
+
+				if token.value == ";"
+					or (
+						statementBoundaryKeywords[
+						token.value
+						]
+							and token.value
+							~= keyword
+					)
+				then
+					-- Stop on a clearly different statement boundary.
+					if token.line > startLine then
+						return nil
+					end
+				end
+			end
+
+			return nil
+		end
+
+		-- ========================================================
+		-- BRACKETS / DELIMITERS
+		-- ========================================================
 
 		local bracketStack = {}
 
-		local brackets = {
+		local openingBrackets = {
 			["("] = ")",
 			["["] = "]",
 			["{"] = "}",
 		}
 
-		local closing = {
-			[")"] = true,
-			["]"] = true,
-			["}"] = true,
+		local closingBrackets = {
+			[")"] = "(",
+			["]"] = "[",
+			["}"] = "{",
 		}
 
-		local lineNumber = 1
-		local position = 1
+		for _, token in ipairs(tokens) do
+			local expected =
+				openingBrackets[
+			token.value
+			]
 
-		while position <= #code do
-			local character = code:sub(position, position)
-
-			if character == "\n" then
-				lineNumber += 1
-				position += 1
-
-			elseif code:sub(position, position + 1) == "--" then
-				local newline = code:find(
-					"\n",
-					position,
-					true
-				)
-
-				if newline then
-					position = newline
-				else
-					break
-				end
-
-			elseif character == "\"" or character == "'" then
-				local quote = character
-				local startLine = lineNumber
-				local closed = false
-
-				position += 1
-
-				while position <= #code do
-					local current = code:sub(position, position)
-
-					if current == "\\" then
-						position += 2
-
-					elseif current == quote then
-						closed = true
-						position += 1
-						break
-
-					elseif current == "\n" then
-						break
-
-					else
-						position += 1
-					end
-				end
-
-				if not closed then
-					table.insert(errors, {
-						line = startLine,
-						message = "Unclosed string",
-					})
-				end
-
-			elseif brackets[character] then
+			if expected then
 				table.insert(
 					bracketStack,
 					{
-						char = character,
-						expected = brackets[character],
-						line = lineNumber,
+						value = token.value,
+						expected = expected,
+						line = token.line,
+						column = token.column,
 					}
 				)
 
-				position += 1
-
-			elseif closing[character] then
-				local top = bracketStack[#bracketStack]
+			elseif closingBrackets[
+				token.value
+				]
+			then
+				local top =
+					bracketStack[
+				#bracketStack
+				]
 
 				if not top then
-					table.insert(errors, {
-						line = lineNumber,
-						message =
-							"Unexpected '"
-							.. character
-							.. "'",
-					})
+					addError(
+						token.line,
+						token.column,
+						"Unexpected '"
+							.. token.value
+							.. "'"
+					)
 
-				elseif top.expected ~= character then
-					table.insert(errors, {
-						line = lineNumber,
-						message =
-							"Expected '"
+				elseif top.expected
+					~= token.value
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected '"
 							.. top.expected
-							.. "'",
-					})
+							.. "' before '"
+							.. token.value
+							.. "'"
+					)
 
-					table.remove(bracketStack)
+					table.remove(
+						bracketStack
+					)
 
 				else
-					table.remove(bracketStack)
+					table.remove(
+						bracketStack
+					)
 				end
-
-				position += 1
-
-			else
-				position += 1
 			end
 		end
 
-		for index = #bracketStack, 1, -1 do
-			local item = bracketStack[index]
+		for index =
+			#bracketStack,
+			1,
+			-1
+		do
+			local bracket =
+				bracketStack[index]
 
-			table.insert(errors, {
-				line = item.line,
-				message =
-					"Expected '"
-					.. item.expected
-					.. "'",
-			})
+			addError(
+				bracket.line,
+				bracket.column,
+				"Expected '"
+					.. bracket.expected
+					.. "'"
+			)
 		end
 
 		-- ========================================================
-		-- BLOCK CHECK
+		-- PUNCTUATION / OPERATOR CHECKS
+		-- ========================================================
+
+		for index, token in ipairs(tokens) do
+			local value = token.value
+			local previous =
+				previousToken(index)
+			local nextValue =
+				nextToken(index)
+
+			-- A colon is only useful as:
+			--     object:Method()
+			--     name: Type
+			-- A lone ":" therefore becomes an error immediately.
+			if value == ":" then
+				if not previous
+					or not nextValue
+					or not isValueEndingToken(
+						previous
+					)
+						or not isIdentifierToken(
+							nextValue
+						)
+				then
+					addError(
+						token.line,
+						token.column,
+						"Unexpected ':'"
+					)
+				end
+
+			elseif value == "." then
+				if not previous
+					or not nextValue
+					or not isValueEndingToken(
+						previous
+					)
+						or not isIdentifierToken(
+							nextValue
+						)
+				then
+					addError(
+						token.line,
+						token.column,
+						"Unexpected '.'"
+					)
+				end
+
+			elseif value == "," then
+				local previousOkay =
+					previous
+					and previous.value ~= ","
+					and previous.value ~= "("
+					and previous.value ~= "["
+					and previous.value ~= "{"
+
+				local nextOkay =
+					nextValue
+					and nextValue.value ~= ","
+					and (
+						nextValue.value ~= ")"
+						and nextValue.value ~= "]"
+						and nextValue.value ~= "}"
+						or previousOkay
+					)
+
+				if not previousOkay
+					or not nextOkay
+				then
+					addError(
+						token.line,
+						token.column,
+						"Unexpected ','"
+					)
+				end
+
+			elseif assignmentOperators[value] then
+				if not previous
+					or previous.value == ","
+					or previous.value == "("
+					or previous.value == "{"
+					or previous.value == "="
+					or previous.value == "local"
+				then
+					addError(
+						token.line,
+						token.column,
+						"Missing assignment target before '"
+							.. value
+							.. "'"
+					)
+				end
+
+				if not nextValue
+					or nextValue.value == ","
+					or nextValue.value == ")"
+					or nextValue.value == "]"
+					or nextValue.value == "}"
+					or nextValue.value == "end"
+					or nextValue.value == "else"
+					or nextValue.value == "elseif"
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected value after '"
+							.. value
+							.. "'"
+					)
+				end
+
+			elseif binaryOperators[value] then
+				local unaryMinus =
+					value == "-"
+					and (
+						not previous
+						or binaryOperators[
+						previous.value
+						]
+						or assignmentOperators[
+						previous.value
+						]
+						or previous.value == "("
+						or previous.value == "["
+						or previous.value == "{"
+						or previous.value == ","
+						or previous.value == "return"
+					)
+
+				if not unaryMinus then
+					if not previous
+						or not isValueEndingToken(
+							previous
+						)
+					then
+						addError(
+							token.line,
+							token.column,
+							"Missing value before '"
+								.. value
+								.. "'"
+						)
+					end
+				end
+
+				if not nextValue
+					or (
+						not isValueStartingToken(
+							nextValue
+						)
+							and nextValue.value
+							~= "not"
+					)
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected value after '"
+							.. value
+							.. "'"
+					)
+				end
+			end
+		end
+
+		-- ========================================================
+		-- STATEMENT / BLOCK CHECKS
 		-- ========================================================
 
 		local blockStack = {}
-		local lines = getLines(code)
 
-		for index, rawLine in ipairs(lines) do
-			local line = trim(stripComment(rawLine))
+		local function pushBlock(
+			blockType,
+			token
+		)
+			table.insert(
+				blockStack,
+				{
+					type = blockType,
+					line = token.line,
+					column = token.column,
+					elseSeen = false,
+				}
+			)
+		end
 
-			if line == "" then
-				continue
+		local function findNearestBlock(
+			blockType
+		)
+			for index =
+				#blockStack,
+				1,
+				-1
+			do
+				if blockStack[index].type
+					== blockType
+				then
+					return index,
+						blockStack[index]
+				end
 			end
 
-			if line == "repeat" then
-				table.insert(
-					blockStack,
-					{
-						type = "repeat",
-						line = index,
-					}
+			return nil, nil
+		end
+
+		local function insideLoop()
+			for index =
+				#blockStack,
+				1,
+				-1
+			do
+				local blockType =
+					blockStack[index].type
+
+				if blockType == "for"
+					or blockType == "while"
+					or blockType == "repeat"
+				then
+					return true
+				end
+			end
+
+			return false
+		end
+
+		for index, token in ipairs(tokens) do
+			local value = token.value
+			local previous =
+				previousToken(index)
+			local nextValue =
+				nextToken(index)
+
+			if value == "local" then
+				if not nextValue then
+					addError(
+						token.line,
+						token.column,
+						"Expected variable or function name after 'local'"
+					)
+
+				elseif nextValue.value
+					== "function"
+				then
+					local functionName =
+						tokenAt(index + 2)
+
+					if not isIdentifierToken(
+						functionName
+						)
+					then
+						addError(
+							nextValue.line,
+							nextValue.column,
+							"Expected function name"
+						)
+					end
+
+				elseif not isIdentifierToken(
+					nextValue
+					)
+				then
+					addError(
+						nextValue.line,
+						nextValue.column,
+						"Expected variable name after 'local'"
+					)
+				end
+
+			elseif value == "if" then
+				local thenIndex =
+					findKeywordAhead(
+						index,
+						"then",
+						3
+					)
+
+				if not nextValue
+					or nextValue.value == "then"
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected condition after 'if'"
+					)
+				end
+
+				if not thenIndex then
+					addError(
+						token.line,
+						token.column,
+						"Expected 'then'"
+					)
+				end
+
+				pushBlock(
+					"if",
+					token
 				)
 
-			elseif line:match(
-				"^if%s+.+%s+then%s*$"
-				) then
-				table.insert(
-					blockStack,
-					{
-						type = "if",
-						line = index,
-					}
+			elseif value == "elseif" then
+				local _, ifBlock =
+					findNearestBlock("if")
+
+				if not ifBlock then
+					addError(
+						token.line,
+						token.column,
+						"Unexpected 'elseif'"
+					)
+				elseif ifBlock.elseSeen then
+					addError(
+						token.line,
+						token.column,
+						"'elseif' cannot appear after 'else'"
+					)
+				end
+
+				if not nextValue
+					or nextValue.value == "then"
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected condition after 'elseif'"
+					)
+				end
+
+				if not findKeywordAhead(
+					index,
+					"then",
+					3
+					)
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected 'then' after 'elseif'"
+					)
+				end
+
+			elseif value == "else" then
+				local _, ifBlock =
+					findNearestBlock("if")
+
+				if not ifBlock then
+					addError(
+						token.line,
+						token.column,
+						"Unexpected 'else'"
+					)
+				elseif ifBlock.elseSeen then
+					addError(
+						token.line,
+						token.column,
+						"Duplicate 'else'"
+					)
+				else
+					ifBlock.elseSeen = true
+				end
+
+			elseif value == "while" then
+				if not nextValue
+					or nextValue.value == "do"
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected condition after 'while'"
+					)
+				end
+
+				if not findKeywordAhead(
+					index,
+					"do",
+					3
+					)
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected 'do' after 'while'"
+					)
+				end
+
+				pushBlock(
+					"while",
+					token
 				)
 
-			elseif line:match(
-				"^for%s+.+%s+do%s*$"
-				) then
-				table.insert(
-					blockStack,
-					{
-						type = "for",
-						line = index,
-					}
+			elseif value == "for" then
+				if not nextValue
+					or not isIdentifierToken(
+						nextValue
+					)
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected variable after 'for'"
+					)
+				end
+
+				if not findKeywordAhead(
+					index,
+					"do",
+					4
+					)
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected 'do' after 'for'"
+					)
+				end
+
+				pushBlock(
+					"for",
+					token
 				)
 
-			elseif line:match(
-				"^while%s+.+%s+do%s*$"
-				) then
-				table.insert(
-					blockStack,
-					{
-						type = "while",
-						line = index,
-					}
+			elseif value == "repeat" then
+				pushBlock(
+					"repeat",
+					token
 				)
 
-			elseif line:match("^function%s+")
-				or line:match("^local%s+function%s+")
-				or line:match("^function%s*%(")
-			then
-				table.insert(
-					blockStack,
-					{
-						type = "function",
-						line = index,
-					}
+			elseif value == "function" then
+				-- Anonymous function() is valid. Named declarations need
+				-- a name followed by a parameter list.
+				if previous
+					and (
+						previous.value == "local"
+							or (
+								previous.line
+								== token.line
+								and previous.value
+								~= "="
+								and previous.value
+								~= "("
+								and previous.value
+								~= ","
+								and previous.value
+								~= "return"
+							)
+					)
+				then
+					if not nextValue
+						or (
+							not isIdentifierToken(
+								nextValue
+							)
+								and nextValue.value
+								~= "("
+						)
+					then
+						addError(
+							token.line,
+							token.column,
+							"Expected function name or '('"
+						)
+					end
+				end
+
+				local cursor =
+					index + 1
+
+				while tokenAt(cursor)
+					and tokenAt(cursor).line
+					<= token.line + 2
+					and tokenAt(cursor).value
+					~= "("
+					and tokenAt(cursor).value
+					~= "end"
+				do
+					cursor += 1
+				end
+
+				if not tokenAt(cursor)
+					or tokenAt(cursor).value
+					~= "("
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected '(' after function declaration"
+					)
+				end
+
+				pushBlock(
+					"function",
+					token
 				)
 
-			elseif line == "do" then
-				table.insert(
-					blockStack,
-					{
-						type = "do",
-						line = index,
-					}
-				)
+			elseif value == "do" then
+				-- for/while already own their 'do'. A standalone do opens
+				-- its own block.
+				if not previous
+					or (
+						previous.value
+							~= "while"
+							and previous.value
+							~= "for"
+					)
+				then
+					local belongsToLoop =
+						false
 
-			elseif line:match("^until%s+") then
-				local top = blockStack[#blockStack]
+					for cursor =
+						math.max(
+							1,
+							index - 12
+						),
+							index - 1
+					do
+						local possible =
+							tokenAt(cursor)
+
+						if possible
+							and possible.line
+							>= token.line - 3
+							and (
+								possible.value
+									== "while"
+									or possible.value
+									== "for"
+							)
+						then
+							belongsToLoop =
+								true
+						end
+					end
+
+					if not belongsToLoop then
+						pushBlock(
+							"do",
+							token
+						)
+					end
+				end
+
+			elseif value == "until" then
+				local top =
+					blockStack[
+				#blockStack
+				]
 
 				if not top
 					or top.type ~= "repeat"
 				then
-					table.insert(errors, {
-						line = index,
-						message = "Unexpected 'until'",
-					})
+					addError(
+						token.line,
+						token.column,
+						"Unexpected 'until'"
+					)
 				else
-					table.remove(blockStack)
+					table.remove(
+						blockStack
+					)
 				end
 
-			elseif line == "end" then
-				local top = blockStack[#blockStack]
+				if not nextValue
+					or nextValue.value == "end"
+					or nextValue.value == "else"
+				then
+					addError(
+						token.line,
+						token.column,
+						"Expected condition after 'until'"
+					)
+				end
+
+			elseif value == "end" then
+				local top =
+					blockStack[
+				#blockStack
+				]
 
 				if not top then
-					table.insert(errors, {
-						line = index,
-						message = "Unexpected 'end'",
-					})
+					addError(
+						token.line,
+						token.column,
+						"Unexpected 'end'"
+					)
+
+				elseif top.type == "repeat" then
+					addError(
+						token.line,
+						token.column,
+						"Expected 'until' for repeat block"
+					)
+
+					table.remove(
+						blockStack
+					)
+
 				else
-					table.remove(blockStack)
+					table.remove(
+						blockStack
+					)
+				end
+
+			elseif value == "break"
+				or value == "continue"
+			then
+				if not insideLoop() then
+					addError(
+						token.line,
+						token.column,
+						"'"
+							.. value
+							.. "' used outside of a loop"
+					)
+				end
+
+			elseif value == "then" then
+				if not previous then
+					addError(
+						token.line,
+						token.column,
+						"Unexpected 'then'"
+					)
 				end
 			end
 		end
 
-		for index = #blockStack, 1, -1 do
-			local block = blockStack[index]
+		for index =
+			#blockStack,
+			1,
+			-1
+		do
+			local block =
+				blockStack[index]
 
-			if block.type ~= "repeat" then
-				table.insert(errors, {
-					line = block.line,
-					message = "Expected 'end'",
-				})
+			if block.type == "repeat" then
+				addError(
+					block.line,
+					block.column,
+					"Expected 'until'"
+				)
+			else
+				addError(
+					block.line,
+					block.column,
+					"Expected 'end'"
+				)
 			end
 		end
+
+		-- ========================================================
+		-- LINE-LEVEL CHECKS
+		-- ========================================================
+
+		local lineTokens = {}
+
+		for _, token in ipairs(tokens) do
+			lineTokens[token.line] =
+				lineTokens[token.line]
+				or {}
+
+			table.insert(
+				lineTokens[token.line],
+				token
+			)
+		end
+
+		for lineNumber, tokensOnLine in pairs(
+			lineTokens
+			) do
+			local first =
+				tokensOnLine[1]
+
+			local last =
+				tokensOnLine[
+			#tokensOnLine
+			]
+
+			if first
+				and last
+			then
+				-- Do not validate syntax from physical line boundaries.
+				-- Luau allows calls and expressions to span multiple lines:
+				--
+				--     Remote:FireServer(
+				--         "Buy",
+				--         value
+				--     )
+				--
+				-- The complete token stream above already validates brackets,
+				-- punctuation, operators, and missing operands. A closing
+				-- parenthesis by itself on a line is therefore perfectly valid.
+
+				-- Literals cannot be direct assignment targets.
+				for index, token in ipairs(
+					tokensOnLine
+					) do
+					if assignmentOperators[
+						token.value
+						]
+					then
+						local lhs =
+							tokensOnLine[
+						index - 1
+						]
+
+						if lhs
+							and (
+								lhs.kind == "number"
+									or lhs.kind == "string"
+									or lhs.value == "true"
+									or lhs.value == "false"
+									or lhs.value == "nil"
+							)
+						then
+							addError(
+								lhs.line,
+								lhs.column,
+								"Invalid assignment target"
+							)
+						end
+					end
+				end
+			end
+		end
+
+		table.sort(
+			errors,
+			function(a, b)
+				if a.line == b.line then
+					return (
+						a.column or 1
+					) < (
+						b.column or 1
+					)
+				end
+
+				return a.line < b.line
+			end
+		)
 
 		return errors
 	end
 
 	-- ============================================================
-	-- ERROR UNDERLINES
+	-- [28] ERROR UNDERLINES
 	-- ============================================================
 
 	local function clearErrorBars()
@@ -1867,7 +4316,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- BRACKET MATCHING
+	-- [29] BRACKET MATCHING
 	-- ============================================================
 
 	local function removeBracketOverlay()
@@ -2029,7 +4478,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- GUTTER
+	-- [30] GUTTER / LINE NUMBERS / FOLD BUTTONS
 	-- ============================================================
 
 	local GUTTER_BUFFER_LINES = 15
@@ -2173,7 +4622,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- SMART ENTER
+	-- [31] SMART ENTER
 	-- ============================================================
 
 	local BLOCK_PATTERNS = {
@@ -2305,7 +4754,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- AUTOCOMPLETE
+	-- [32] AUTOCOMPLETE ENGINE / POPUP
 	-- ============================================================
 
 	local completionPopup = Instance.new("Frame")
@@ -2352,6 +4801,10 @@ return function(MainFrame, Console_2)
 	completionLayout.Parent =
 		completionPopup
 
+	-- ------------------------------------------------------------
+	-- AUTOCOMPLETE: POPUP RESET
+	-- ------------------------------------------------------------
+
 	clearAutocomplete = function()
 		for _, button in ipairs(completionButtons) do
 			if button and button.Parent then
@@ -2367,13 +4820,106 @@ return function(MainFrame, Console_2)
 		completionPopup.Visible = false
 	end
 
-	local function getCurrentWord()
-		local line = getLineAtCursor()
+	-- ------------------------------------------------------------
+	-- AUTOCOMPLETE: CURSOR / IDENTIFIER CONTEXT
+	-- ------------------------------------------------------------
 
-		return line:match(
-			"([%a_][%w_]*)$"
-		) or ""
+	local function getAutocompleteContext()
+		local cursor =
+			input.CursorPosition
+
+		if cursor < 1 then
+			return {
+				prefix = "",
+				suffix = "",
+				fullWord = "",
+				wordStart = cursor,
+				wordEnd = cursor,
+			}
+		end
+
+		local text =
+			input.Text
+
+		local prefixEnd =
+			cursor - 1
+
+		local prefixStart =
+			prefixEnd
+
+		while prefixStart >= 1
+			and text:sub(
+				prefixStart,
+				prefixStart
+			):match("[%w_]")
+		do
+			prefixStart -= 1
+		end
+
+		prefixStart += 1
+
+		local suffixStart =
+			cursor
+
+		local suffixEnd =
+			suffixStart
+
+		while suffixEnd <= #text
+			and text:sub(
+				suffixEnd,
+				suffixEnd
+			):match("[%w_]")
+		do
+			suffixEnd += 1
+		end
+
+		local prefix =
+			text:sub(
+				prefixStart,
+				prefixEnd
+			)
+
+		local suffix =
+			text:sub(
+				suffixStart,
+				suffixEnd - 1
+			)
+
+		local fullWord =
+			prefix .. suffix
+
+		-- A valid identifier must start with a letter or underscore.
+		if fullWord ~= ""
+			and not fullWord:sub(
+				1,
+				1
+			):match("[%a_]")
+		then
+			return {
+				prefix = "",
+				suffix = "",
+				fullWord = "",
+				wordStart = cursor,
+				wordEnd = cursor,
+			}
+		end
+
+		return {
+			prefix = prefix,
+			suffix = suffix,
+			fullWord = fullWord,
+			wordStart = prefixStart,
+			wordEnd = suffixEnd - 1,
+		}
 	end
+
+	local function getCurrentWord()
+		return getAutocompleteContext().prefix
+	end
+
+	-- ------------------------------------------------------------
+	-- AUTOCOMPLETE: SELECTION VISUALS
+	-- ------------------------------------------------------------
 
 	local function updateCompletionSelection()
 		for index, button in ipairs(completionButtons) do
@@ -2387,27 +4933,53 @@ return function(MainFrame, Console_2)
 						64
 					)
 
-				button.TextColor3 =
-					Color3.fromRGB(
-						255,
-						255,
-						255
-					)
+				if button:GetAttribute(
+					"DynamicSymbol"
+					) then
+					button.TextColor3 =
+						Color3.fromRGB(
+							110,
+							235,
+							205
+						)
+				else
+					button.TextColor3 =
+						Color3.fromRGB(
+							255,
+							255,
+							255
+						)
+				end
 			else
 				button.BackgroundTransparency = 1
 
-				button.TextColor3 =
-					Color3.fromRGB(
-						220,
-						220,
-						220
-					)
+				if button:GetAttribute(
+					"DynamicSymbol"
+					) then
+					button.TextColor3 =
+						Color3.fromRGB(
+							78,
+							201,
+							176
+						)
+				else
+					button.TextColor3 =
+						Color3.fromRGB(
+							220,
+							220,
+							220
+						)
+				end
 			end
 		end
 	end
 
 	local AUTOCOMPLETE_X_OFFSET = 4
 	local AUTOCOMPLETE_Y_OFFSET = 8
+
+	-- ------------------------------------------------------------
+	-- AUTOCOMPLETE: POPUP POSITION
+	-- ------------------------------------------------------------
 
 	positionAutocomplete = function()
 		if not completionPopup.Visible then
@@ -2577,6 +5149,10 @@ return function(MainFrame, Console_2)
 			)
 	end
 
+	-- ------------------------------------------------------------
+	-- AUTOCOMPLETE: INSERT SUGGESTION
+	-- ------------------------------------------------------------
+
 	local function insertCompletion()
 		if not completionPopup.Visible then
 			return false
@@ -2589,11 +5165,21 @@ return function(MainFrame, Console_2)
 			return false
 		end
 
-		local cursor = input.CursorPosition
-		local current = getCurrentWord()
+		local cursor =
+			input.CursorPosition
+
+		local context =
+			getAutocompleteContext()
+
+		-- Autocomplete should never replace text while the cursor is
+		-- sitting inside an already existing identifier.
+		if context.suffix ~= "" then
+			clearAutocomplete()
+			return false
+		end
 
 		local wordStart =
-			cursor - #current
+			context.wordStart
 
 		local before =
 			input.Text:sub(
@@ -2628,6 +5214,10 @@ return function(MainFrame, Console_2)
 		return true
 	end
 
+	-- ------------------------------------------------------------
+	-- AUTOCOMPLETE: BUILD SUGGESTIONS
+	-- ------------------------------------------------------------
+
 	showAutocomplete = function()
 		if not Features.Autocomplete then
 			clearAutocomplete()
@@ -2639,7 +5229,23 @@ return function(MainFrame, Console_2)
 			return
 		end
 
-		local prefix = getCurrentWord()
+		local context =
+			getAutocompleteContext()
+
+		local prefix =
+			context.prefix
+
+		-- Do not show suggestions while the cursor is inside an existing
+		-- identifier. Example:
+		--
+		--     h|umanoid
+		--
+		-- "umanoid" already exists to the right of the cursor, so suggesting
+		-- "Humanoid" again is noisy and can accidentally duplicate text.
+		if context.suffix ~= "" then
+			clearAutocomplete()
+			return
+		end
 
 		if prefix == "" then
 			clearAutocomplete()
@@ -2648,19 +5254,88 @@ return function(MainFrame, Console_2)
 
 		clearAutocomplete()
 
-		for _, word in ipairs(COMPLETIONS) do
-			if word:sub(
-				1,
-				#prefix
-				):lower()
-					== prefix:lower()
-					and word:lower()
-					~= prefix:lower()
+		local prefixLower =
+			prefix:lower()
+
+		local added = {}
+
+		local function tryAdd(word)
+			if not word
+				or added[word]
 			then
+				return
+			end
+
+			local lower =
+				word:lower()
+
+			if lower:sub(
+				1,
+				#prefixLower
+				) == prefixLower
+					and lower ~= prefixLower
+			then
+				added[word] = true
+
 				table.insert(
 					completionWords,
 					word
 				)
+			end
+		end
+
+		-- Only symbols declared before the cursor are suggested. This makes
+		-- autocomplete behave much more like a real editor instead of
+		-- suggesting variables that haven't been declared yet.
+		local cursor =
+			math.max(
+				1,
+				input.CursorPosition
+			)
+
+		local sourceBeforeCursor =
+			input.Text:sub(
+				1,
+				math.max(
+					0,
+					cursor - 1
+				)
+			)
+
+		local availableSet,
+			availableSymbols,
+			availableFunctions =
+			collectAvailableSymbols(
+				sourceBeforeCursor
+			)
+
+		-- Do not suppress autocomplete just because the prefix exactly
+		-- matches one in-scope symbol. tryAdd() already excludes the exact
+		-- same word while still allowing longer useful matches.
+		--
+		-- This keeps h|umanoid fixed via the suffix guard above, while
+		-- allowing loop code such as "for i, v in ..." to still suggest
+		-- longer v-prefixed names when appropriate.
+
+		-- Dynamic symbols come first because they are usually more useful
+		-- than generic built-ins.
+		for _, word in ipairs(
+			availableSymbols
+			) do
+			tryAdd(word)
+
+			if #completionWords >=
+				MAX_COMPLETIONS
+			then
+				break
+			end
+		end
+
+		if #completionWords
+			< MAX_COMPLETIONS
+		then
+			for _, word in ipairs(COMPLETIONS) do
+				tryAdd(word)
 
 				if #completionWords >=
 					MAX_COMPLETIONS
@@ -2674,7 +5349,9 @@ return function(MainFrame, Console_2)
 			return
 		end
 
-		for index, word in ipairs(completionWords) do
+		for index, word in ipairs(
+			completionWords
+			) do
 			local button =
 				Instance.new("TextButton")
 
@@ -2691,11 +5368,17 @@ return function(MainFrame, Console_2)
 
 			button.BackgroundTransparency = 1
 			button.BorderSizePixel = 0
-
 			button.Text = word
 
+			-- User symbols are green in autocomplete too.
 			button.TextColor3 =
-				Color3.fromRGB(
+				availableSet[word]
+				and Color3.fromRGB(
+					78,
+					201,
+					176
+				)
+				or Color3.fromRGB(
 					220,
 					220,
 					220
@@ -2703,37 +5386,31 @@ return function(MainFrame, Console_2)
 
 			button.TextSize = 14
 			button.Font = Enum.Font.Code
-
 			button.TextXAlignment =
 				Enum.TextXAlignment.Left
 
 			button.LayoutOrder = index
-
-			button.AutoButtonColor = false
-			button.ZIndex = 21
-
-			local padding =
-				Instance.new("UIPadding")
-
-			padding.PaddingLeft =
-				UDim.new(0, 8)
-
-			padding.Parent = button
+			button.ZIndex = 101
 			button.Parent = completionPopup
 
-			button.MouseEnter:Connect(
-				function()
-					selectedCompletion = index
-					updateCompletionSelection()
-				end
+			-- Store the kind so selection styling can preserve the semantic
+			-- green color after moving with Up/Down.
+			button:SetAttribute(
+				"DynamicSymbol",
+				availableSet[word]
+					== true
 			)
 
-			button.MouseButton1Click:Connect(
-				function()
-					selectedCompletion = index
-					insertCompletion()
-				end
+			button:SetAttribute(
+				"DynamicFunction",
+				availableFunctions[word]
+					== true
 			)
+
+			button.MouseButton1Click:Connect(function()
+				selectedCompletion = index
+				insertCompletion()
+			end)
 
 			table.insert(
 				completionButtons,
@@ -2749,13 +5426,15 @@ return function(MainFrame, Console_2)
 			)
 
 		selectedCompletion = 1
-
 		updateCompletionSelection()
 
 		completionPopup.Visible = true
-
-		task.defer(positionAutocomplete)
+		positionAutocomplete()
 	end
+
+	-- ------------------------------------------------------------
+	-- AUTOCOMPLETE: KEYBOARD CONTROL
+	-- ------------------------------------------------------------
 
 	local function handleAutocompleteKey(keyCode)
 		if not Features.Autocomplete then
@@ -2875,7 +5554,7 @@ return function(MainFrame, Console_2)
 
 
 	-- ============================================================
-	-- STABLE CURSOR / VERTICAL NAVIGATION
+	-- [33] KEYBOARD CURSOR / VERTICAL NAVIGATION
 	-- ============================================================
 	--
 	-- IMPORTANT:
@@ -2903,6 +5582,9 @@ return function(MainFrame, Console_2)
 	local verticalKeyDown = false
 	local settingCursorInternally = false
 	local manualMousePlacementPending = false
+
+	local mouseSelectingText = false
+	local mouseSelectionAnchor = nil
 
 	local function isCursorGuardActive()
 		return guardedCursorPosition ~= nil
@@ -2932,6 +5614,268 @@ return function(MainFrame, Console_2)
 		settingCursorInternally = false
 
 		logicalCursorPosition = cursorPosition
+	end
+
+	local function setSelectionInternally(
+		anchorPosition,
+		cursorPosition
+	)
+		if not input.Parent then
+			return
+		end
+
+		anchorPosition =
+			math.clamp(
+				anchorPosition,
+				1,
+				#input.Text + 1
+			)
+
+		cursorPosition =
+			math.clamp(
+				cursorPosition,
+				1,
+				#input.Text + 1
+			)
+
+		settingCursorInternally = true
+
+		input.CursorPosition =
+			cursorPosition
+
+		input.SelectionStart =
+			anchorPosition
+
+		settingCursorInternally = false
+
+		logicalCursorPosition =
+			cursorPosition
+	end
+
+	local function getSelectionRange()
+		local cursor =
+			input.CursorPosition
+
+		local selectionStart =
+			input.SelectionStart
+
+		if cursor < 1
+			or selectionStart < 1
+			or cursor == selectionStart
+		then
+			return nil, nil
+		end
+
+		return math.min(
+			cursor,
+			selectionStart
+		),
+			math.max(
+				cursor,
+				selectionStart
+			)
+	end
+
+	local function updateSelectionVisuals()
+		clearSelectionVisuals()
+
+		local selectionMin,
+			selectionMax =
+			getSelectionRange()
+
+		if not selectionMin
+			or not input:IsFocused()
+		then
+			return
+		end
+
+		rebuildFoldingCache()
+
+		local lineHeight =
+			getLineHeight()
+
+		local displayOffsetX =
+			input.Position.X.Offset
+
+		local displayOffsetY =
+			input.Position.Y.Offset
+
+		local startLine =
+			getCursorSourceLine(
+				selectionMin
+			)
+
+		local endLine =
+			getCursorSourceLine(
+				math.max(
+					selectionMin,
+					selectionMax - 1
+				)
+			)
+
+		for sourceLine =
+			startLine,
+			endLine
+		do
+			if not isLineHidden(
+				sourceLine
+				) then
+				local lineText =
+					cachedLines[
+				sourceLine
+				] or ""
+
+				local lineStart =
+					lineStartPositions[
+				sourceLine
+				] or 1
+
+				local localStart =
+					math.clamp(
+						selectionMin
+						- lineStart,
+						0,
+						#lineText
+					)
+
+				local localEnd =
+					math.clamp(
+						selectionMax
+						- lineStart,
+						0,
+						#lineText
+					)
+
+				if sourceLine > startLine then
+					localStart = 0
+				end
+
+				if sourceLine < endLine then
+					localEnd =
+						#lineText
+				end
+
+				local selectsLineBreak =
+					sourceLine < endLine
+
+				if localEnd > localStart
+					or selectsLineBreak
+				then
+					local beforeText =
+						lineText:sub(
+							1,
+							localStart
+						)
+
+					local selectedText =
+						lineText:sub(
+							localStart + 1,
+							localEnd
+						)
+
+					local startWidth =
+						TextService:GetTextSize(
+							beforeText,
+							input.TextSize,
+							input.Font,
+							Vector2.new(
+								100000,
+								lineHeight
+							)
+						).X
+
+					local selectedWidth =
+						TextService:GetTextSize(
+							selectedText,
+							input.TextSize,
+							input.Font,
+							Vector2.new(
+								100000,
+								lineHeight
+							)
+						).X
+
+					local visibleLine =
+						visibleLineIndex[
+					sourceLine
+					] or sourceLine
+
+					local visual =
+						Instance.new("Frame")
+
+					visual.Name =
+						"Selection"
+
+					visual.BackgroundColor3 =
+						Color3.fromRGB(
+							70,
+							110,
+							170
+						)
+
+					visual.BackgroundTransparency =
+						0.35
+
+					visual.BorderSizePixel = 0
+					visual.ZIndex = 3
+
+					visual.Position =
+						UDim2.fromOffset(
+							math.round(
+								displayOffsetX
+								+ startWidth
+							),
+							math.round(
+								displayOffsetY
+								+ (
+									visibleLine - 1
+								)
+								* lineHeight
+							)
+						)
+
+					local visualWidth =
+						selectedWidth
+
+					if selectsLineBreak then
+						visualWidth +=
+							math.max(
+								4,
+								TextService:GetTextSize(
+									" ",
+									input.TextSize,
+									input.Font,
+									Vector2.new(
+										1000,
+										lineHeight
+									)
+								).X
+							)
+					end
+
+					visual.Size =
+						UDim2.fromOffset(
+							math.max(
+								2,
+								math.ceil(
+									visualWidth
+								)
+							),
+							math.ceil(
+								lineHeight
+							)
+						)
+
+					visual.Parent =
+						selectionOverlay
+
+					table.insert(
+						selectionFrames,
+						visual
+					)
+				end
+			end
+		end
 	end
 
 	local function guardCursor(cursorPosition, duration)
@@ -3072,7 +6016,7 @@ return function(MainFrame, Console_2)
 	-- order relative to its native caret navigation.
 
 	-- ============================================================
-	-- BRACKET AUTO CLOSE
+	-- [34] BRACKET / QUOTE AUTO-CLOSE
 	-- ============================================================
 
 	local lastAutoClosePosition = nil
@@ -3207,7 +6151,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- DRAGGING
+	-- [35] WINDOW DRAGGING
 	-- ============================================================
 
 	local function MakeDraggable(topbarobject, object)
@@ -3270,7 +6214,7 @@ return function(MainFrame, Console_2)
 	MakeDraggable(frame, frame)
 
 	-- ============================================================
-	-- RESIZING
+	-- [36] WINDOW RESIZING
 	-- ============================================================
 
 	local resizing = false
@@ -3386,7 +6330,7 @@ return function(MainFrame, Console_2)
 	)
 
 	-- ============================================================
-	-- SETTINGS / BUTTONS
+	-- [37] TOOLBAR BUTTON REFERENCES
 	-- ============================================================
 
 	local ButtonsFrame =
@@ -3422,7 +6366,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- EXECUTE
+	-- [38] EXECUTE BUTTON
 	-- ============================================================
 
 	if Execute then
@@ -3454,7 +6398,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- CLEAR
+	-- [39] CLEAR BUTTON
 	-- ============================================================
 
 	if Clear then
@@ -3466,7 +6410,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- CONSOLE
+	-- [40] CONSOLE BUTTON
 	-- ============================================================
 
 	if Console then
@@ -3485,7 +6429,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- SETTINGS
+	-- [41] SETTINGS WINDOW
 	-- ============================================================
 
 	local SettingsFrame =
@@ -3559,7 +6503,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- FEATURE SETTINGS
+	-- [42] FEATURE SETTINGS / TOGGLES
 	-- ============================================================
 
 	local featureNames = {
@@ -3757,7 +6701,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- CLOSE SETTINGS
+	-- [43] SETTINGS CLOSE / WINDOW FOCUS
 	-- ============================================================
 
 	if SettingsFrame then
@@ -3829,7 +6773,7 @@ return function(MainFrame, Console_2)
 	end
 
 	-- ============================================================
-	-- TEXT CHANGED
+	-- [44] TEXT-CHANGE PIPELINE
 	-- ============================================================
 
 	local refreshSerial = 0
@@ -3876,6 +6820,12 @@ return function(MainFrame, Console_2)
 	input:GetPropertyChangedSignal("Text"):Connect(function()
 		invalidateFoldingCache()
 		invalidateHorizontalWidthCache()
+
+		-- Keep semantic highlighting/autocomplete synchronized with the
+		-- source as the user types.
+		rebuildDynamicSymbols(
+			input.Text
+		)
 
 		if updatingText then
 			return
@@ -3958,7 +6908,7 @@ return function(MainFrame, Console_2)
 	end)
 
 	-- ============================================================
-	-- KEYBOARD
+	-- [45] KEYBOARD INPUT
 	-- ============================================================
 
 	local verticalRepeatToken = 0
@@ -4099,38 +7049,50 @@ return function(MainFrame, Console_2)
 	end)
 
 	-- ============================================================
-	-- CURSOR
+	-- [46] CURSOR / SELECTION EVENTS
 	-- ============================================================
 
 	local function getCursorPositionFromMouse(screenPosition)
 		rebuildFoldingCache()
 
-		local lineHeight = getLineHeight()
+		local lineHeight =
+			getLineHeight()
 
-		-- Convert the screen click into DOCUMENT coordinates explicitly.
-		--
-		-- CanvasPosition is the amount by which the scrolling canvas has
-		-- moved. Using it directly avoids depending on the AbsolutePosition
-		-- behaviour of a huge TextBox inside a ScrollingFrame.
-		local viewportX =
+		-- MouseCapture exactly overlays the hidden TextBox. Using its real
+		-- AbsolutePosition is more accurate than reconstructing the point
+		-- from CanvasPosition and a hard-coded gutter offset.
+		local localX =
 			screenPosition.X
-		- EditorScroll.AbsolutePosition.X
+		- mouseCapture.AbsolutePosition.X
 
-		local viewportY =
+		local localY =
 			screenPosition.Y
-		- EditorScroll.AbsolutePosition.Y
+		- mouseCapture.AbsolutePosition.Y
 
-		local documentX =
-			EditorScroll.CanvasPosition.X
-			+ viewportX
+		-- Clamp while dragging beyond the visible text area.
+		localX =
+			math.clamp(
+				localX,
+				0,
+				math.max(
+					0,
+					mouseCapture.AbsoluteSize.X
+				)
+			)
 
-		local documentY =
-			EditorScroll.CanvasPosition.Y
-			+ viewportY
+		localY =
+			math.clamp(
+				localY,
+				0,
+				math.max(
+					0,
+					mouseCapture.AbsoluteSize.Y
+				)
+			)
 
 		local renderedLine =
 			math.floor(
-				math.max(0, documentY)
+				math.max(0, localY)
 				/ lineHeight
 			)
 			+ 1
@@ -4159,14 +7121,6 @@ return function(MainFrame, Console_2)
 			lineStartPositions[sourceLine]
 			or 1
 
-		-- Gutter occupies the first 55 document pixels.
-		local localX =
-			math.max(
-				0,
-				documentX - 55
-			)
-
-		-- Binary-search the nearest insertion point.
 		local low = 0
 		local high = #lineText
 		local bestCharacter = 0
@@ -4229,22 +7183,25 @@ return function(MainFrame, Console_2)
 				).X
 
 			if localX
-				> (leftWidth + rightWidth)
-				* 0.5
+				>= (
+					leftWidth
+						+ rightWidth
+				) * 0.5
 			then
 				bestCharacter += 1
 			end
 		end
 
 		return math.clamp(
-			lineStart + bestCharacter,
+			lineStart
+				+ bestCharacter,
 			1,
 			#input.Text + 1
 		)
 	end
 
-	-- The transparent MouseCapture sits above Input, so Roblox never gets
-	-- a native TextBox mouse hit-test. Every click is translated manually.
+	-- MouseCapture sits above the transparent TextBox, so Potassium
+	-- performs both caret placement and drag-selection itself.
 	mouseCapture.InputBegan:Connect(function(
 		inputObject
 	)
@@ -4260,10 +7217,7 @@ return function(MainFrame, Console_2)
 				inputObject.Position.Y
 			)
 
-		-- Block any CursorPosition changes caused by CaptureFocus until our
-		-- manually calculated caret has been installed.
 		manualMousePlacementPending = true
-
 		preferredVerticalColumn = nil
 		clearCursorGuard()
 
@@ -4276,29 +7230,98 @@ return function(MainFrame, Console_2)
 			input:CaptureFocus()
 		end
 
+		mouseSelectingText = true
+		mouseSelectionAnchor =
+			cursorPosition
+
 		logicalCursorPosition =
 			cursorPosition
 
-		guardCursor(
+		setSelectionInternally(
 			cursorPosition,
-			0.20
+			cursorPosition
 		)
 
 		manualMousePlacementPending = false
 
+		clearSelectionVisuals()
+		clearAutocomplete()
+
 		resetCursorBlink()
 		updateEditorCursor()
 		updateBracketMatching()
+	end)
+
+	UserInputService.InputChanged:Connect(function(
+		inputObject
+	)
+		if not mouseSelectingText
+			or inputObject.UserInputType
+			~= Enum.UserInputType.MouseMovement
+		then
+			return
+		end
+
+		if not input:IsFocused()
+			or not mouseSelectionAnchor
+		then
+			return
+		end
+
+		local mousePosition =
+			Vector2.new(
+				inputObject.Position.X,
+				inputObject.Position.Y
+			)
+
+		local cursorPosition =
+			getCursorPositionFromMouse(
+				mousePosition
+			)
+
+		clearCursorGuard()
+
+		setSelectionInternally(
+			mouseSelectionAnchor,
+			cursorPosition
+		)
+
+		resetCursorBlink()
+		updateSelectionVisuals()
+		updateEditorCursor()
 
 		task.defer(function()
 			if input:IsFocused() then
-				updateEditorCursor()
-
-				if completionPopup.Visible then
-					positionAutocomplete()
-				end
+				ensureCursorVisible()
 			end
 		end)
+	end)
+
+	UserInputService.InputEnded:Connect(function(
+		inputObject
+	)
+		if inputObject.UserInputType
+			~= Enum.UserInputType.MouseButton1
+		then
+			return
+		end
+
+		if not mouseSelectingText then
+			return
+		end
+
+		mouseSelectingText = false
+		mouseSelectionAnchor = nil
+
+		logicalCursorPosition =
+			math.max(
+				1,
+				input.CursorPosition
+			)
+
+		updateSelectionVisuals()
+		updateEditorCursor()
+		updateBracketMatching()
 	end)
 
 	input:GetPropertyChangedSignal(
@@ -4314,6 +7337,15 @@ return function(MainFrame, Console_2)
 				1,
 				input.CursorPosition
 			)
+
+		if mouseSelectingText then
+			logicalCursorPosition =
+				actualCursor
+
+			updateSelectionVisuals()
+			updateEditorCursor()
+			return
+		end
 
 		-- CaptureFocus may briefly try to choose its own caret. Ignore that
 		-- while a custom mouse placement is being installed.
@@ -4401,8 +7433,18 @@ return function(MainFrame, Console_2)
 	end)
 
 	-- ============================================================
-	-- FOCUS
+	-- [47] TEXTBOX FOCUS EVENTS
 	-- ============================================================
+
+	input:GetPropertyChangedSignal(
+		"SelectionStart"
+	):Connect(function()
+		if settingCursorInternally then
+			return
+		end
+
+		updateSelectionVisuals()
+	end)
 
 	input.Focused:Connect(
 		function()
@@ -4437,7 +7479,7 @@ return function(MainFrame, Console_2)
 	)
 
 	-- ============================================================
-	-- FONT / SIZE CHANGES
+	-- [48] FONT / TEXT SIZE WATCHERS
 	-- ============================================================
 
 	local function refreshTextMetrics()
@@ -4462,7 +7504,7 @@ return function(MainFrame, Console_2)
 	)
 
 	-- ============================================================
-	-- SCROLL / RESIZE - OPTIMIZED
+	-- [49] OPTIMIZED VIEWPORT REFRESH
 	-- ============================================================
 
 	local scrollRefreshPending = false
@@ -4597,8 +7639,12 @@ return function(MainFrame, Console_2)
 	end)
 
 	-- ============================================================
-	-- INITIALIZATION
+	-- [50] INITIALIZATION
 	-- ============================================================
+
+	rebuildDynamicSymbols(
+		input.Text
+	)
 
 	currentErrors =
 		findErrors(
