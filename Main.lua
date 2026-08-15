@@ -86,13 +86,18 @@ local UICorner_19 = Instance.new("UICorner")
 local UIStroke_10 = Instance.new("UIStroke")
 local LogsFrame = Instance.new("Frame")
 local UICorner_20 = Instance.new("UICorner")
-local UIStroke_11 = Instance.new("UIStroke")
 local Holder_2 = Instance.new("ScrollingFrame")
 local UIListLayout_5 = Instance.new("UIListLayout")
 local UIPadding_5 = Instance.new("UIPadding")
 local Templates_2 = Instance.new("Folder")
 local Log = Instance.new("TextButton")
 
+
+local Files = Instance.new("Frame")
+local UIListLayout_4 = Instance.new("UIListLayout")
+local Template_Files = Instance.new("Folder")
+local File_Button = Instance.new("TextButton")
+local UITextSizeConstraint = Instance.new("UITextSizeConstraint")
 
 
 --// Properties and Parents \\--
@@ -757,11 +762,6 @@ LogsFrame.Parent = ConsoleHolder
 -- StarterGui.Potassium_Internal.Console.ConsoleHolder.LogsFrame.UICorner
 UICorner_20.Parent = LogsFrame
 
--- StarterGui.Potassium_Internal.Console.ConsoleHolder.LogsFrame.UIStroke
-UIStroke_11.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-UIStroke_11.Color = Color3.fromRGB(38, 38, 38)
-UIStroke_11.Parent = LogsFrame
-
 -- StarterGui.Potassium_Internal.Console.ConsoleHolder.LogsFrame.Holder
 Holder_2.Name = "Holder"
 Holder_2.Active = true
@@ -808,6 +808,40 @@ Log.TextYAlignment = Enum.TextYAlignment.Top
 Log.Font = Enum.Font.SourceSans
 Log.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
 Log.Parent = Templates_2
+
+-- StarterGui.Potassium_Internal.MainFrame.Files
+Files.Name = "Files"
+Files.Position = UDim2.new(0.8559480905532837, 0, -0.0008184259640984237, 0)
+Files.Size = UDim2.new(0, 84, 0, 288)
+Files.BackgroundTransparency = 1
+Files.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+Files.BorderSizePixel = 0
+Files.BorderColor3 = Color3.fromRGB(0, 0, 0)
+Files.Parent = MainFrame
+
+UIListLayout_4.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout_4.Parent = Files
+
+Template_Files.Name = "Template_Files"
+Template_Files.Parent = Files
+
+File_Button.Size = UDim2.new(1, 0, 0.0694444477558136, 0)
+File_Button.BackgroundTransparency = 1
+File_Button.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+File_Button.BorderSizePixel = 0
+File_Button.BorderColor3 = Color3.fromRGB(0, 0, 0)
+File_Button.Text = "Slam"
+File_Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+File_Button.TextSize = 14
+File_Button.TextScaled = true
+File_Button.TextWrapped = true
+File_Button.Font = Enum.Font.SourceSans
+File_Button.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+File_Button.Parent = Template_Files
+
+UITextSizeConstraint.MaxTextSize = 15
+UITextSizeConstraint.Parent = File_Button
+
 
 	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDE.lua"))()(MainFrame, Console_2)
 
