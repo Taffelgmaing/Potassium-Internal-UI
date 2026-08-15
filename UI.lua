@@ -48,7 +48,7 @@ end
       Mouse = game:GetService("Players").LocalPlayer:GetMouse(),
 }
 
- getgenv().UtilityModule.Visual_Loader()(true)
+ -- getgenv().UtilityModule.Visual_Loader()(true)
 
  getgenv().UtilityModule:Discord("7wZ7vEgWXR")
  
