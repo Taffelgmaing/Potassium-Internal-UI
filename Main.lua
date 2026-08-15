@@ -1,5 +1,9 @@
 -- Generated with Readable GUI Dumper V11
 
+if game.CoreGui:FindFirstChild("Potassium_Internal") then
+	game.CoreGui:FindFirstChild("Potassium_Internal"):Destroy()
+end
+
 local MainParent = game.CoreGui
 
 
