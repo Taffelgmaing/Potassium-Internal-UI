@@ -14,12 +14,19 @@ return function(MainFrame, Console_2)
 		- Does not add a Script Viewer button to MainFrame.
 
 		IMPORTANT:
-		Normal Script/LocalScript code cannot read Script.Source at runtime.
-		This viewer therefore supports:
-		    1) direct Source access when the environment permits it,
-		    2) a registered source provider,
-		    3) registered source strings,
-		    4) PotassiumSource attribute/StringValue fallbacks.
+		Normal Roblox code cannot read arbitrary Script.Source at runtime.
+
+		This viewer now integrates with the Potassium executor script API:
+		    1) registered source strings,
+		    2) registered source provider,
+		    3) optional executor decompile(...) when available,
+		    4) Potassium getscriptbytecode(...) API,
+		    5) direct Source access when the environment permits it,
+		    6) PotassiumSource attribute/StringValue fallbacks.
+
+		The documented Potassium API exposes raw Luau bytecode, not a
+		documented source decompiler. When no decompile function exists,
+		the viewer shows a readable bytecode/metadata view instead.
 	]]
 
 	-- ============================================================
@@ -272,7 +279,7 @@ return function(MainFrame, Console_2)
 	-- ============================================================
 
 	local ViewerWindow =
-		Instance.new("Frame")
+		Instance.new("ImageButton")
 
 	ViewerWindow.Name =
 		"PotassiumScriptViewer"
@@ -289,6 +296,8 @@ return function(MainFrame, Console_2)
 	ViewerWindow.Active = true
 	ViewerWindow.ZIndex = 4
 	ViewerWindow.Parent = windowParent
+	ViewerWindow.ImageTransparency = 1
+	ViewerWindow.AutoButtonColor = false
 
 	local windowCorner =
 		Instance.new("UICorner")
@@ -586,6 +595,7 @@ return function(MainFrame, Console_2)
 	local selectedScript = nil
 	local currentSource = ""
 	local currentLines = {""}
+	local currentSourceMode = "None"
 
 	local lineHeight =
 		math.max(
@@ -840,9 +850,274 @@ return function(MainFrame, Console_2)
 			)
 	end
 
+	-- ============================================================
+	-- POTASSIUM EXECUTOR SCRIPT API
+	-- ============================================================
+
+	local function getExecutorEnvironment()
+		local ok, environment =
+			pcall(function()
+				if type(getgenv) == "function" then
+					return getgenv()
+				end
+
+				return _G
+			end)
+
+		if ok
+			and type(environment) == "table"
+		then
+			return environment
+		end
+
+		return _G
+	end
+
+	local function getExecutorFunction(name)
+		local environment =
+			getExecutorEnvironment()
+
+		local candidate =
+			environment
+			and environment[name]
+
+		if type(candidate) == "function" then
+			return candidate
+		end
+
+		local ok, globalCandidate =
+			pcall(function()
+				return _G[name]
+			end)
+
+		if ok
+			and type(globalCandidate) == "function"
+		then
+			return globalCandidate
+		end
+
+		return nil
+	end
+
+	local function buildBytecodeView(
+		instance,
+		bytecode
+	)
+		local output = {
+			"-- Potassium Script Viewer",
+			"-- ================================================",
+			"-- Source mode: raw Luau bytecode",
+			"-- Script: " .. tostring(instance.Name),
+			"-- Class: " .. tostring(instance.ClassName),
+			"-- Bytecode size: " .. tostring(#bytecode) .. " bytes",
+		}
+
+		local getHash =
+			getExecutorFunction(
+				"getscripthash"
+			)
+
+		if getHash then
+			local ok, hash =
+				pcall(
+					getHash,
+					instance
+				)
+
+			if ok
+				and type(hash) == "string"
+			then
+				table.insert(
+					output,
+					"-- SHA384: " .. hash
+				)
+			end
+		end
+
+		table.insert(output, "--")
+		table.insert(
+			output,
+			"-- Potassium documents getscriptbytecode(script), which returns"
+		)
+		table.insert(
+			output,
+			"-- compiled Luau bytecode rather than original Luau source."
+		)
+		table.insert(
+			output,
+			"-- If this executor build exposes decompile(script), ScriptViewer"
+		)
+		table.insert(
+			output,
+			"-- will use it automatically and show reconstructed Luau instead."
+		)
+		table.insert(output, "")
+		table.insert(
+			output,
+			"-- HEX / ASCII BYTECODE DUMP"
+		)
+		table.insert(
+			output,
+			"-- -----------------------------------------------"
+		)
+
+		local bytesPerLine = 16
+
+		for offset = 1, #bytecode, bytesPerLine do
+			local chunk =
+				bytecode:sub(
+					offset,
+					math.min(
+						#bytecode,
+						offset + bytesPerLine - 1
+					)
+				)
+
+			local hexParts = {}
+			local asciiParts = {}
+
+			for index = 1, #chunk do
+				local character =
+					chunk:sub(index, index)
+
+				local byte =
+					string.byte(character)
+
+				table.insert(
+					hexParts,
+					string.format(
+						"%02X",
+						byte
+					)
+				)
+
+				if byte >= 32
+					and byte <= 126
+				then
+					table.insert(
+						asciiParts,
+						character
+					)
+				else
+					table.insert(
+						asciiParts,
+						"."
+					)
+				end
+			end
+
+			local hexText =
+				table.concat(
+					hexParts,
+					" "
+				)
+
+			local targetHexLength =
+				bytesPerLine * 3 - 1
+
+			if #hexText < targetHexLength then
+				hexText =
+					hexText
+					.. string.rep(
+						" ",
+						targetHexLength - #hexText
+					)
+			end
+
+			table.insert(
+				output,
+				string.format(
+					"%08X  %s  |%s|",
+					offset - 1,
+					hexText,
+					table.concat(asciiParts)
+				)
+			)
+		end
+
+		return table.concat(
+			output,
+			"\n"
+		)
+	end
+
+	local function tryPotassiumScriptApi(instance)
+		if not (
+			instance:IsA("LocalScript")
+				or instance:IsA("ModuleScript")
+			)
+		then
+			return nil,
+				nil,
+				"Potassium getscriptbytecode() supports LocalScript and ModuleScript."
+		end
+
+		local decompileFunction =
+			getExecutorFunction(
+				"decompile"
+			)
+
+		if decompileFunction then
+			local ok, decompiled =
+				pcall(
+					decompileFunction,
+					instance
+				)
+
+			if ok
+				and type(decompiled) == "string"
+				and decompiled ~= ""
+			then
+				return decompiled,
+					"Decompiled",
+					nil
+			end
+		end
+
+		local getBytecode =
+			getExecutorFunction(
+				"getscriptbytecode"
+			)
+
+		if not getBytecode then
+			return nil,
+				nil,
+				"Potassium getscriptbytecode() is unavailable in this environment."
+		end
+
+		local okBytecode, bytecode =
+			pcall(
+				getBytecode,
+				instance
+			)
+
+		if not okBytecode then
+			return nil,
+				nil,
+				"getscriptbytecode() failed: "
+				.. tostring(bytecode)
+		end
+
+		if type(bytecode) ~= "string"
+			or bytecode == ""
+		then
+			return nil,
+				nil,
+				"getscriptbytecode() returned no bytecode."
+		end
+
+		return buildBytecodeView(
+			instance,
+			bytecode
+		),
+			"Bytecode",
+			nil
+	end
+
 	local function tryReadSource(instance)
 		if not isScriptContainer(instance) then
 			return nil,
+				nil,
 				"Selected instance is not a script."
 		end
 
@@ -850,7 +1125,9 @@ return function(MainFrame, Console_2)
 			registeredSources[instance]
 
 		if type(registered) == "string" then
-			return registered
+			return registered,
+				"Registered Source",
+				nil
 		end
 
 		if sourceProvider then
@@ -862,12 +1139,27 @@ return function(MainFrame, Console_2)
 
 			if ok
 				and type(provided) == "string"
+				and provided ~= ""
 			then
-				return provided
+				return provided,
+					"Source Provider",
+					nil
 			end
 		end
 
-		-- Works only in environments where Roblox allows Source access.
+		local potassiumSource,
+			potassiumMode,
+			potassiumError =
+			tryPotassiumScriptApi(
+				instance
+			)
+
+		if potassiumSource then
+			return potassiumSource,
+				potassiumMode,
+				nil
+		end
+
 		local okSource, source =
 			pcall(function()
 				return instance.Source
@@ -875,8 +1167,11 @@ return function(MainFrame, Console_2)
 
 		if okSource
 			and type(source) == "string"
+			and source ~= ""
 		then
-			return source
+			return source,
+				"Direct Source",
+				nil
 		end
 
 		local okAttribute, attribute =
@@ -889,7 +1184,9 @@ return function(MainFrame, Console_2)
 		if okAttribute
 			and type(attribute) == "string"
 		then
-			return attribute
+			return attribute,
+				"PotassiumSource Attribute",
+				nil
 		end
 
 		local sourceValue =
@@ -900,13 +1197,18 @@ return function(MainFrame, Console_2)
 		if sourceValue
 			and sourceValue:IsA("StringValue")
 		then
-			return sourceValue.Value
+			return sourceValue.Value,
+				"PotassiumSource StringValue",
+				nil
 		end
 
 		return nil,
-			"Roblox blocked access to this script's Source. "
-			.. "Register the source with ScriptViewer:RegisterSource(...) "
-			.. "or provide a source provider."
+			nil,
+			potassiumError
+			or (
+				"Source unavailable. Potassium could not read or "
+				.. "decompile this script."
+			)
 	end
 
 	local function calculateContentWidth()
@@ -1114,9 +1416,17 @@ return function(MainFrame, Console_2)
 	local function setDisplayedSource(
 		instance,
 		source,
-		errorMessage
+		errorMessage,
+		sourceMode
 	)
 		selectedScript = instance
+		currentSourceMode =
+			sourceMode
+			or (
+				source
+				and "Source"
+				or "Unavailable"
+			)
 
 		if instance then
 			scriptName.Text =
@@ -1127,10 +1437,15 @@ return function(MainFrame, Console_2)
 
 			scriptPath.Text =
 				getInstancePath(instance)
+				.. "  •  "
+				.. currentSourceMode
 
 			title.Text =
 				"Script Viewer  •  "
 				.. instance.Name
+				.. "  ["
+				.. currentSourceMode
+				.. "]"
 		else
 			scriptName.Text =
 				"No script selected"
@@ -1180,13 +1495,16 @@ return function(MainFrame, Console_2)
 			return false
 		end
 
-		local source, sourceError =
+		local source,
+			sourceMode,
+			sourceError =
 			tryReadSource(instance)
 
 		setDisplayedSource(
 			instance,
 			source,
-			sourceError
+			sourceError,
+			sourceMode
 		)
 
 		ViewerWindow.Visible = true
@@ -1262,7 +1580,9 @@ return function(MainFrame, Console_2)
 			if selectedScript == instance then
 				setDisplayedSource(
 					instance,
-					source
+					source,
+					nil,
+					"Registered Source"
 				)
 			end
 		end
@@ -1305,7 +1625,9 @@ return function(MainFrame, Console_2)
 			if selectedScript == instance then
 				setDisplayedSource(
 					instance,
-					source
+					source,
+					nil,
+					"Registered Source"
 				)
 			end
 		end
@@ -1498,7 +1820,12 @@ return function(MainFrame, Console_2)
 	end
 
 	-- Initial empty view.
-	setDisplayedSource(nil, "")
+	setDisplayedSource(
+		nil,
+		"",
+		nil,
+		"None"
+	)
 
 	return controller
 end
