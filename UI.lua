@@ -4901,14 +4901,9 @@ end)
       end
    end)
 
-   -- tab:Button("Refresh Configs", function()
-   --    getgenv().UtilityModule:Notify({
-   --       Title = getgenv().UtilityModule.HubName,
-   --       Description = "Updated Configs List!",
-   --       Duration = 3
-   --    })
-   --    ConfigsDropdown:Refresh(Mainholder:GetConfigs(false))
-   -- end)
+   tab:Button("Refresh Configs", function()
+      ConfigsDropdown:Refresh(Mainholder:GetConfigs(false))
+   end)
 
    tab:line()
 
