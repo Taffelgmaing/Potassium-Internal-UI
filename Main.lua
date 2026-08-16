@@ -159,6 +159,7 @@ MainFrame.BorderSizePixel = 0
 MainFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
 MainFrame.Image = "rbxassetid://79420553037586"
 MainFrame.Parent = Potassium_Internal
+MainFrame.Visible = false
 
 -- StarterGui.Potassium_Internal.MainFrame.UICorner
 UICorner_2.Parent = MainFrame
