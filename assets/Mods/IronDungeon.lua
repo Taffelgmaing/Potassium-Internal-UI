@@ -48,7 +48,7 @@ function Attack(bool)
 	-- controller.WeaponDef.BaseAttack.Info.CD = 0
 
 	controller:PerformAction("BaseAttack")
-
+	task.wait()
 	controller:StopAction("BaseAttack")
 
 	if bool then
@@ -185,6 +185,24 @@ end)
 
 local TweenService = game:GetService("TweenService")
 local CurrentEnemy = nil
+local CurrentEnemyModel = nil
+
+
+local TargetHighlight = Instance.new("Highlight")
+TargetHighlight.Name = "AutofarmTarget"
+TargetHighlight.Enabled = false
+TargetHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+TargetHighlight.FillTransparency = 0.5
+TargetHighlight.OutlineTransparency = 0
+TargetHighlight.Parent = game.Players.LocalPlayer.PlayerGui
+
+local function SetCurrentEnemy(enemy)
+	CurrentEnemyModel = enemy
+
+	TargetHighlight.Adornee = enemy
+	TargetHighlight.Enabled = true
+end
+
 spawn(function()
 	while task.wait() do
 		if Autofarm then
@@ -211,7 +229,12 @@ spawn(function()
 							if v:GetAttribute("LevelType") == "Boss" then
 								FinalDistance = CFrame.new(Distance_X * 1.5,Distance_Y * 1.5,Distance_Z * 1.5) * CFrame.Angles(math.rad(Pitch), math.rad(180), 0)
 							end
-							CurrentEnemy = v.HumanoidRootPart
+
+							if (game.Players.LocalPlayer.Character.HumanoidRootPart.Position - v.HumanoidRootPart.Position).Magnitude <= math.huge then
+								CurrentEnemy = v.HumanoidRootPart
+							end
+
+							SetCurrentEnemy(CurrentEnemy.Parent)
 							
 							game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = CurrentEnemy.CFrame * FinalDistance
 						until not Autofarm or v.Humanoid.Health <= 0 or not v:FindFirstChild("HumanoidRootPart")
@@ -261,44 +284,52 @@ spawn(function()
 				end)
 
 				task.spawn(function()
-					if not CameraChange then
-						return
-					end
+					local success2, err2 = pcall(function()
+						if not CameraChange then
+							return
+						end
 
-					local character = player.Character
-					if not character then
-						return
-					end
+						local character = player.Character
+						if not character then
+							return
+						end
 
-					local root = character:FindFirstChild("HumanoidRootPart")
-					if not root then
-						return
-					end
+						local root = character:FindFirstChild("HumanoidRootPart")
+						if not root then
+							return
+						end
 
-					-- Force Roblox's normal camera / Popper off
-					Camera.CameraType = Enum.CameraType.Scriptable
-					Camera.CameraSubject = nil
+						Camera.CameraType = Enum.CameraType.Scriptable
+						Camera.CameraSubject = nil
 
-					local targetPosition = root.Position
+						local targetPosition = root.Position
 
-					-- Same positioning method as your old code
-					local cameraPosition =
-						targetPosition
-						+ Vector3.new(
-							0,
-							CameraDistance,
-							CAMERA_BACK
-						)
-
-					Camera.CFrame =
-						CFrame.lookAt(
-							cameraPosition,
+						local cameraPosition =
 							targetPosition
-						)
+							+ Vector3.new(
+								0,
+								CameraDistance,
+								CAMERA_BACK
+							)
 
-					Camera.Focus = CFrame.new(targetPosition)
+						TweenService:Create(
+							Camera,
+							TweenInfo.new(0.3, Enum.EasingStyle.Quad),
+							{CFrame = CFrame.lookAt(
+								cameraPosition,
+								targetPosition
+							)}
+						):Play()
+
+						Camera.Focus = CFrame.new(targetPosition)
+					end)
+					if not success2 then
+						warn("Camera: ",err2)
+					end
 				end)
-				Attack(AutoUseSkill)
+				task.spawn(function()
+					Attack(AutoUseSkill)
+				end)
 			end)
 			if not success then
 				warn(err)
