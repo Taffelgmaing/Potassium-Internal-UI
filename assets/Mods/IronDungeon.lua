@@ -213,6 +213,10 @@ spawn(function()
 				if CollectingChests then return end
 				if CollectingEggs then return end
 				if not workspace.EnemyNpc:FindFirstChildOfClass("Model") then
+					if workspace:GetAttribute("GameMode") == "" then
+						game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(8561.28906, 273.670654, -3727.4563, 0.589069664, -2.59408957e-08, 0.808082283, -6.4901144e-08, 1, 7.9412942e-08, -0.808082283, -9.92252183e-08, 0.589069664)
+						return
+					end
 					local OldCFrame = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame
 					for i,v in pairs(workspace.PlayerRespawn:GetChildren()) do
 						if v:IsA("Part") then
