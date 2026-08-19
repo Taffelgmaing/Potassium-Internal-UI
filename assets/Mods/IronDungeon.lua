@@ -35,6 +35,9 @@ end
 
 local Controller = require(manager.Controller)
 local Framework = require(game:GetService("ReplicatedStorage").Framework)
+local TranslationUtil = Framework.Modules.TranslationUtil
+local ForgeUtil = Framework.Modules.ForgeUtil
+local RarityTiers = Framework.Modules.RarityTiers
 
 local controller = Controller.new(
 	character,
@@ -70,14 +73,14 @@ function Attack(bool)
 end
 
 -- Framework.Modules.EquipmentUtil:ChangeWeaponSlot(game.Players.LocalPlayer)
-
-AutofarmTab:Toggle("Autofarm", false, function(t)
-    Autofarm = t
-	if not Autofarm then
-		Camera.CameraType = Enum.CameraType.Custom
-		Camera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid")
-	end
-end)
+if game.PlaceId ~= 117533937949084 then
+	AutofarmTab:Toggle("Autofarm", false, function(t)
+		Autofarm = t
+		if not Autofarm then
+			Camera.CameraType = Enum.CameraType.Custom
+			Camera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid")
+		end
+	end)
 
 AutofarmTab:Slider("Distance X", -20, 20, 0, function(t)
     Distance_X = t
@@ -210,7 +213,7 @@ spawn(function()
 				end
 				for i,v in pairs(workspace.EnemyNpc:GetChildren()) do
 					if v:IsA("Model") and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 and v:FindFirstChild("HumanoidRootPart") then
-						local MaxNum = 2000
+						local MaxNum = 1000
 						local Counting = 0
 						repeat task.wait()
 							local FinalDistance = CFrame.new(Distance_X,Distance_Y,Distance_Z) * CFrame.Angles(math.rad(Pitch), math.rad(180), 0)
@@ -375,28 +378,21 @@ spawn(function()
 	end
 end)
 
-function GetCrystals()
-	local Crystals_Table = {}
-	for i,v in pairs(Framework.Modules.DataUtil:GetPlayerData(game.Players.LocalPlayer).Crystals) do
-		table.insert(Crystals_Table, i)
-	end
-	return Crystals_Table
 end
 
-local Crystals_Check = AutoSellTab:Checklist("Crystals", "Crystals_key", GetCrystals(), function(t)
+function GetRarities()
+	local Rarities_Table = {}
+	for i,v in pairs(RarityTiers.Tiers) do
+		table.insert(Rarities_Table, v.Name)
+	end
+	return Rarities_Table
+end
+
+local Crystals_Check = AutoSellTab:Checklist("Crystal Rarity", "Crystals_key", GetRarities(), function(t)
     Crystals = t
 end)
 
-function GetOres()
-	local Ores_Table = {}
-	for i,v in pairs(Framework.Modules.DataUtil:GetPlayerData(game.Players.LocalPlayer).Ores) do
-		table.insert(Ores_Table, i)
-	end
-	return Ores_Table
-end
-
-
-local Ores_Check = AutoSellTab:Checklist("Ores", "Ores_Key", GetOres(), function(t)
+local Ores_Check = AutoSellTab:Checklist("Ores Rarity", "Ores_Key", GetRarities(), function(t)
     Ores = t
 end)
 
@@ -414,13 +410,78 @@ end)
 
 AutoSellTab:Button("Refresh All", function()
 	Equipment_Check:Refresh(GetEquipment())
-	Ores_Check:Refresh(GetOres())
-	Crystals_Check:Refresh(GetCrystals())
+	Ores_Check:Refresh(GetRarities())
+	Crystals_Check:Refresh(GetRarities())
 end)
 
 AutoSellTab:Toggle("Auto Sell", false, function(t)
     AutoSell = t
 end)
+
+
+
+
+local Data_ores = Framework.Modules.DataUtil:GetPlayerData(game.Players.LocalPlayer).Ores
+
+local function GetOresWithNames()
+    local result = {}
+
+    local ores_ForData =
+        Framework.Modules.DataUtil
+            :GetPlayerData(game.Players.LocalPlayer)
+            .Ores
+
+    for oreId, amount in pairs(ores_ForData) do
+        local def = Framework.Modules.ForgeUtil:GetDef(oreId)
+
+        if def then
+            local name =
+                Framework.Modules.TranslationUtil:TranslateByKey(
+                    "K_" .. string.upper(def.ID)
+                )
+            local Rarity = RarityTiers.Tiers[def.Rarity]
+            table.insert(result, {
+                ID = oreId,
+                Name = name,
+                Amount = amount,
+                Rarity = Rarity.Name
+            })
+        end
+    end
+
+    return result
+end
+
+local function GetCrystals()
+	local result = {}
+
+	local crystals_data =
+		Framework.Modules.DataUtil
+			:GetPlayerData(game.Players.LocalPlayer)
+			.Crystals
+
+	for crystalId, amount in pairs(crystals_data) do
+		local def, materialType =
+			Framework.Modules.MaterialUtil:GetDef(crystalId)
+
+		if def then
+			local name =
+				Framework.Modules.TranslationUtil:TranslateByKey(
+					"K_" .. string.upper(def.ID)
+				)
+				local Rarity = RarityTiers.Tiers[def.Rarity]
+			table.insert(result, {
+				ID = crystalId,
+				Name = name,
+				Rarity = Rarity.Name,
+				Amount = amount,
+				MaterialType = materialType,
+			})
+		end
+	end
+
+	return result
+end
 
 
 spawn(function()
@@ -429,20 +490,26 @@ spawn(function()
 			local success, err = pcall(function()
 				local FinalLoop = {}
 				if Crystals then
-					for i,v in pairs(Crystals) do
-						FinalLoop[v] = 1
+					for i,v in pairs(GetCrystals()) do
+						if table.find(Crystals, v.Rarity) then
+							FinalLoop[v.ID] = 1
+							-- print(v.ID, v.Name, v.Rarity)
+						end
 					end
+
 					local ohString1 = "Sell"
 					local ohTable2 = FinalLoop
 					local ohTable3 = {}
-					
+
 					game:GetService("ReplicatedStorage").Framework.Gameplay.EquipmentSystem.MaterialUtil.RemoteEvent:FireServer(ohString1, ohTable2, ohTable3)
 				end
-
+				
 				local OresLoop = {}
 				if Ores then
-					for i,v in pairs(Ores) do
-						OresLoop[v] = 1
+					for i,v in pairs(GetOresWithNames()) do
+						if table.find(Ores, v.Rarity) then
+							OresLoop[v.ID] = 1
+						end
 					end
 					
 					local ohString1 = "Sell"
