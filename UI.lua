@@ -6,7 +6,7 @@ end
 -- "lacking capability Plugin" errors when this code runs from a normal client thread.
 local PlayersService = game:GetService("Players")
 local LocalPlayer = PlayersService.LocalPlayer or PlayersService.PlayerAdded:Wait()
-local PlayerGui = game.CoreGui
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local ExistingUI = PlayerGui:FindFirstChild("woof")
 if ExistingUI then
