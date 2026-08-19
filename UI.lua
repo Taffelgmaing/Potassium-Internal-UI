@@ -232,13 +232,13 @@ end
  woof.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
  local success, err = pcall(function()
-	ScreenGui.Parent = CoreGui
+	 woof.Parent = CoreGui
  end)
  
  if not success then
  	warn("CoreGui unavailable, using PlayerGui:", err)
  
- 	ScreenGui.Parent = PlayerGui
+ 	 woof.Parent = PlayerGui
  end
 
  
