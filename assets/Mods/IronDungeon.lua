@@ -110,7 +110,7 @@ AutofarmTab:Toggle("Allow Camera Change", false, function(t)
 	end
 end)
 
-AutofarmTab:Slider("Camera Distance", 0, 100, 0, function(t)
+AutofarmTab:Slider("Camera Distance", 70, 100, 0, function(t)
     CameraDistance = t
 end)
 
