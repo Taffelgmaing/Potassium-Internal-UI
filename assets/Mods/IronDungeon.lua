@@ -66,6 +66,8 @@ function Attack(bool)
 					controller:PerformAction("Skill1")
 					task.wait(0.1)
 					controller:PerformAction("Skill2")
+					task.wait(0.1)
+					controller:PerformAction("SkillAW")
 				end
 			end
 		end)
@@ -153,6 +155,10 @@ spawn(function()
 	while task.wait() do
 		if AutoPlayAgain then
 			local success, err = pcall(function()
+				if game:GetService("Players").LocalPlayer.PlayerGui.BattleHUD.PlayerRevive.ReviveFrame.Visible then
+					game:GetService("ReplicatedStorage").Remotes.GamePlayerRE:FireServer("ExitSettlement")
+				end
+
 				if game:GetService("Players").LocalPlayer.PlayerGui.ResultGui.ScreenSettlement.Visible then
 					local GameRoundRE = game.ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("GameRoundRE");
 					GameRoundRE:FireServer("VotePlayAgain");
@@ -213,12 +219,12 @@ spawn(function()
 				end
 				for i,v in pairs(workspace.EnemyNpc:GetChildren()) do
 					if v:IsA("Model") and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 and v:FindFirstChild("HumanoidRootPart") then
-						local MaxNum = 1000
-						local Counting = 0
+						local MaxNum, MaxNum2 = 1000, 100
+						local Counting, Counting2 = 0, 0
 						repeat task.wait()
-							local FinalDistance = CFrame.new(Distance_X,Distance_Y,Distance_Z) * CFrame.Angles(math.rad(Pitch), math.rad(180), 0)
+							local FinalDistance = CFrame.new(Distance_X,Distance_Y,Distance_Z) * CFrame.Angles(math.rad(0), math.rad(0), math.rad(Pitch))
 							if v:GetAttribute("LevelType") == "Boss" then
-								FinalDistance = CFrame.new(Distance_X * 1.5,Distance_Y * 1.5,Distance_Z * 1.5) * CFrame.Angles(math.rad(Pitch), math.rad(180), 0)
+								FinalDistance = CFrame.new(Distance_X * 1.5,Distance_Y * 1.5,Distance_Z * 1.5) * CFrame.Angles(math.rad(0), math.rad(0), math.rad(Pitch))
 							end
 
 							if (game.Players.LocalPlayer.Character.HumanoidRootPart.Position - v.HumanoidRootPart.Position).Magnitude <= math.huge then
@@ -226,7 +232,7 @@ spawn(function()
 							end
 
 							SetCurrentEnemy(CurrentEnemy.Parent)
-
+							
 							-- Fail Safe
 							Counting = Counting + 1
 
