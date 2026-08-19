@@ -7,6 +7,7 @@ end
 local PlayersService = game:GetService("Players")
 local LocalPlayer = PlayersService.LocalPlayer or PlayersService.PlayerAdded:Wait()
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local CoreGui = game:GetService("CoreGui")
 
 local ExistingUI = PlayerGui:FindFirstChild("woof")
 if ExistingUI then
@@ -229,7 +230,16 @@ end
  woof.ResetOnSpawn = false
  woof.IgnoreGuiInset = true
  woof.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
- woof.Parent = PlayerGui
+
+ local success, err = pcall(function()
+	ScreenGui.Parent = CoreGui
+ end)
+ 
+ if not success then
+ 	warn("CoreGui unavailable, using PlayerGui:", err)
+ 
+ 	ScreenGui.Parent = PlayerGui
+ end
 
  
 
@@ -5100,7 +5110,7 @@ function Example()
       
    end)
 end
- 
+
 -- Example()
  
  return Mainholder
