@@ -145,27 +145,6 @@ end)
 
 local CollectingEggs = false
 local CollectingChests = false
-spawn(function()
-	while task.wait() do
-		if AutoCollectChests then
-			local success, err = pcall(function()
-				for i,v in pairs(workspace:GetChildren()) do
-					if v:IsA("Model") and string.find(v.Name, "Chest") and v:FindFirstChild("Root") and v:GetAttribute("HitCount") > 0 then
-						CollectingChests = true
-						repeat task.wait()
-							game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = v.Root.CFrame * CFrame.new(0,0,5)
-						until not AutoCollectChests or not v or not v:FindFirstChild("Root") or v:GetAttribute("HitCount") == 0
-					else
-						CollectingChests = false
-					end
-				end
-			end)
-			if not success then
-				warn(err)
-			end
-		end
-	end
-end)
 
 spawn(function()
 	while task.wait() do
@@ -193,8 +172,11 @@ TargetHighlight.Name = "AutofarmTarget"
 TargetHighlight.Enabled = false
 TargetHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 TargetHighlight.FillTransparency = 0.5
+TargetHighlight.FillColor = Color3.fromRGB(0, 0, 255)
 TargetHighlight.OutlineTransparency = 0
-TargetHighlight.Parent = game.Players.LocalPlayer.PlayerGui
+TargetHighlight.OutlineColor = Color3.fromRGB(0, 200, 40)
+TargetHighlight.Parent = game.Players.LocalPlayer.PlayerGui:WaitForChild("woof")
+
 
 local function SetCurrentEnemy(enemy)
 	CurrentEnemyModel = enemy
@@ -228,6 +210,8 @@ spawn(function()
 				end
 				for i,v in pairs(workspace.EnemyNpc:GetChildren()) do
 					if v:IsA("Model") and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 and v:FindFirstChild("HumanoidRootPart") then
+						local MaxNum = 2000
+						local Counting = 0
 						repeat task.wait()
 							local FinalDistance = CFrame.new(Distance_X,Distance_Y,Distance_Z) * CFrame.Angles(math.rad(Pitch), math.rad(180), 0)
 							if v:GetAttribute("LevelType") == "Boss" then
@@ -239,11 +223,44 @@ spawn(function()
 							end
 
 							SetCurrentEnemy(CurrentEnemy.Parent)
+
+							-- Fail Safe
+							Counting = Counting + 1
+
+							if Counting > MaxNum then
+								game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = CurrentEnemy.CFrame
+								task.wait(0.1)
+								Counting = 0
+								return
+							end
 							
 							game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = CurrentEnemy.CFrame * FinalDistance
 						until not Autofarm or v.Humanoid.Health <= 0 or not v:FindFirstChild("HumanoidRootPart")
 					elseif v and v:IsA("Model") and not v:FindFirstChild("HumanoidRootPart") then
 						game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = v:GetPivot()
+					end
+				end
+			end)
+			if not success then
+				warn(err)
+			end
+		end
+	end
+end)
+
+spawn(function()
+	while task.wait() do
+		if AutoCollectChests then
+			local success, err = pcall(function()
+				for i,v in pairs(workspace:GetChildren()) do
+					if v:IsA("Model") and string.find(v.Name, "Chest") and v:FindFirstChild("Root") and v:GetAttribute("HitCount") > 0 then
+						CollectingChests = true
+						repeat task.wait()
+							local FinalDistance = CFrame.new(Distance_X,Distance_Y,Distance_Z) * CFrame.Angles(math.rad(Pitch), math.rad(180), 0)
+							game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = v.Root.CFrame * FinalDistance
+						until not AutoCollectChests or not v or not v:FindFirstChild("Root") or v:GetAttribute("HitCount") == 0
+					else
+						CollectingChests = false
 					end
 				end
 			end)
