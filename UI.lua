@@ -227,9 +227,13 @@ end
  local woof = Instance.new("ScreenGui")
  woof.Name = "woof"
  woof.ResetOnSpawn = false
- woof.IgnoreGuiInset = true
- woof.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
  woof.Parent = PlayerGui
+
+woof.AutoLocalize = false
+woof.IgnoreGuiInset = true
+woof.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+woof.SafeAreaCompatibility = Enum.SafeAreaCompatibility.None
+woof.ScreenInsets = Enum.ScreenInsets.None
 
  
 
