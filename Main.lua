@@ -4,9 +4,8 @@
 --	game.CoreGui:FindFirstChild("Potassium_Internal"):Destroy()
 --end
 
---local MainParent = game.CoreGui
+local MainParent = game.CoreGui
 
-local MainParent = game.Players.LocalPlayer.PlayerGui
 
 
 --// Locals \\--
