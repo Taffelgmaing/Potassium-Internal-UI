@@ -106,6 +106,7 @@ local UITextSizeConstraint = Instance.new("UITextSizeConstraint")
 Potassium_Internal.Name = "Potassium_Internal"
 Potassium_Internal.AutoLocalize = false
 Potassium_Internal.IgnoreGuiInset = true
+Potassium_Internal.ResetOnSpawn = false
 Potassium_Internal.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 Potassium_Internal.SafeAreaCompatibility = Enum.SafeAreaCompatibility.None
 Potassium_Internal.ScreenInsets = Enum.ScreenInsets.None
