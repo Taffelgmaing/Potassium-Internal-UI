@@ -1,10 +1,12 @@
 -- Generated with Readable GUI Dumper V11
 
-if game.CoreGui:FindFirstChild("Potassium_Internal") then
-	game.CoreGui:FindFirstChild("Potassium_Internal"):Destroy()
-end
+--if game.CoreGui:FindFirstChild("Potassium_Internal") then
+--	game.CoreGui:FindFirstChild("Potassium_Internal"):Destroy()
+--end
 
-local MainParent = game.CoreGui
+--local MainParent = game.CoreGui
+
+local MainParent = game.Players.LocalPlayer.PlayerGui
 
 
 --// Locals \\--
@@ -159,7 +161,6 @@ MainFrame.BorderSizePixel = 0
 MainFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
 MainFrame.Image = "rbxassetid://79420553037586"
 MainFrame.Parent = Potassium_Internal
-MainFrame.Visible = false
 
 -- StarterGui.Potassium_Internal.MainFrame.UICorner
 UICorner_2.Parent = MainFrame
@@ -844,10 +845,14 @@ UITextSizeConstraint.MaxTextSize = 15
 UITextSizeConstraint.Parent = File_Button
 
 
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDE.lua"))()(MainFrame, Console_2)
+local FileSystem = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/FileSystem.lua"))()
 
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Console.lua"))()(Console_2)
+loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/IDE.lua"))()(MainFrame, Console_2)
 
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Intro.lua"))()(Potassium_Internal)
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Explorer.lua"))()(MainFrame, Console_2)
-	loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/ScriptViewer.lua"))()(MainFrame, Console_2)
+loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Console.lua"))()(Console_2, FileSystem)
+
+loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Intro.lua"))()(Potassium_Internal)
+loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/Explorer.lua"))()(MainFrame, Console_2)
+loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/Taffelgmaing/Potassium-Internal-UI/refs/heads/main/Modules/ScriptViewer.lua"))()(MainFrame, Console_2)
+
+
