@@ -1,4 +1,4 @@
-return function(Console_2)
+return function(Console_2, FileSystem)
 
 
 	-- ============================================================
@@ -71,6 +71,150 @@ return function(Console_2)
 	local CloseConsoleButton = ConsoleHolder.Settings:FindFirstChild("Close")
 
 	local UserInputService = game:GetService("UserInputService")
+
+	-- ============================================================
+	-- FILESYSTEM / PERSISTENT CONSOLE STATE
+	-- ============================================================
+
+	-- FileSystem can either be passed into this module:
+	--     CreateConsole(ConsoleFrame, FileSystem)
+	-- or placed next to this ModuleScript as "FileSystem".
+	if not FileSystem and script and script.Parent then
+		local FileSystemModule = script.Parent:FindFirstChild("FileSystem")
+
+		if FileSystemModule and FileSystemModule:IsA("ModuleScript") then
+			local success, result = pcall(require, FileSystemModule)
+
+			if success then
+				FileSystem = result
+			end
+		end
+	end
+
+	assert(
+		FileSystem,
+		"[Potassium Console] FileSystem module was not provided"
+	)
+
+	local ConsoleStatePath
+
+	if FileSystem.Join then
+		ConsoleStatePath = FileSystem.Join(FileSystem.DataPath, "Console.cfg")
+	else
+		ConsoleStatePath = FileSystem.DataPath .. "/Console.cfg"
+	end
+
+	local loadingConsoleState = false
+	local consoleStateLoaded = false
+
+	local function serializeUDim2(value)
+		return {
+			XScale = value.X.Scale,
+			XOffset = value.X.Offset,
+			YScale = value.Y.Scale,
+			YOffset = value.Y.Offset,
+		}
+	end
+
+	local function deserializeUDim2(data, fallback)
+		if type(data) ~= "table" then
+			return fallback
+		end
+
+		local xScale = tonumber(data.XScale)
+		local xOffset = tonumber(data.XOffset)
+		local yScale = tonumber(data.YScale)
+		local yOffset = tonumber(data.YOffset)
+
+		if xScale == nil or xOffset == nil or yScale == nil or yOffset == nil then
+			return fallback
+		end
+
+		return UDim2.new(xScale, xOffset, yScale, yOffset)
+	end
+
+	local function SaveConsoleState()
+		if loadingConsoleState then
+			return false
+		end
+
+		local state = {
+			WasOpen = ConsoleFrame.Visible,
+			Position = serializeUDim2(ConsoleFrame.Position),
+			Size = serializeUDim2(ConsoleFrame.Size),
+		}
+
+		local success, err = FileSystem.SaveJSON(ConsoleStatePath, state)
+
+		if not success then
+			warn(
+				"[Potassium Console] Failed to save console state:",
+				err
+			)
+		end
+
+		return success
+	end
+
+	local function LoadConsoleState()
+		loadingConsoleState = true
+
+		local state = nil
+
+		if FileSystem.FileExists(ConsoleStatePath) then
+			local loaded, err = FileSystem.ReadJSON(ConsoleStatePath)
+
+			if type(loaded) == "table" then
+				state = loaded
+			elseif err then
+				warn(
+					"[Potassium Console] Failed to load console state:",
+					err
+				)
+			end
+		end
+
+		if state then
+			ConsoleFrame.Position = deserializeUDim2(
+				state.Position,
+				ConsoleFrame.Position
+			)
+
+			ConsoleFrame.Size = deserializeUDim2(
+				state.Size,
+				ConsoleFrame.Size
+			)
+
+			if type(state.WasOpen) == "boolean" then
+				ConsoleFrame.Visible = state.WasOpen
+			end
+		end
+
+		loadingConsoleState = false
+		consoleStateLoaded = true
+
+		-- First run: create the config immediately from the default state.
+		if not state then
+			SaveConsoleState()
+		end
+	end
+
+	LoadConsoleState()
+
+	-- Save immediately EVERY time the console is opened or closed.
+	-- This also catches Visible changes made outside this module.
+	ConsoleFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+		if consoleStateLoaded then
+			SaveConsoleState()
+		end
+	end)
+
+	-- Final backup for a clean shutdown. The console does not rely on this.
+	pcall(function()
+		game:BindToClose(function()
+			SaveConsoleState()
+		end)
+	end)
 
 	-- ============================================================
 	-- FIXED CONSOLE BOTTOM BAR
@@ -242,10 +386,12 @@ return function(Console_2)
 	-- ============================================================
 
 	local function MakeDraggable(topbarobject, object)
-		local Dragging = nil
+		local Dragging = false
 		local DragInput = nil
 		local DragStart = nil
 		local StartPosition = nil
+		local LastTargetPosition = nil
+		local ActiveTween = nil
 
 		local function Update(input)
 			local Delta = input.Position - DragStart
@@ -256,8 +402,20 @@ return function(Console_2)
 					StartPosition.Y.Scale,
 					StartPosition.Y.Offset + Delta.Y
 				)
-			local Tween = TweenService:Create(object, TweenInfo.new(0.2), {Position = pos})
-			Tween:Play()
+
+			LastTargetPosition = pos
+
+			if ActiveTween then
+				ActiveTween:Cancel()
+			end
+
+			ActiveTween = TweenService:Create(
+				object,
+				TweenInfo.new(0.2),
+				{Position = pos}
+			)
+
+			ActiveTween:Play()
 		end
 
 		topbarobject.InputBegan:Connect(
@@ -266,11 +424,23 @@ return function(Console_2)
 					Dragging = true
 					DragStart = input.Position
 					StartPosition = object.Position
+					LastTargetPosition = object.Position
 
 					input.Changed:Connect(
 						function()
 							if input.UserInputState == Enum.UserInputState.End then
 								Dragging = false
+
+								if ActiveTween then
+									ActiveTween:Cancel()
+								end
+
+								if LastTargetPosition then
+									object.Position = LastTargetPosition
+								end
+
+								-- Save the final dragged position immediately.
+								SaveConsoleState()
 							end
 						end
 					)
@@ -472,6 +642,7 @@ return function(Console_2)
 
 				resizing = false
 				layoutConsoleBottomBar()
+				SaveConsoleState()
 
 			end
 
@@ -1033,8 +1204,34 @@ return function(Console_2)
 
 	if CloseConsoleButton then
 		CloseConsoleButton.MouseButton1Click:Connect(function()
+			-- The Visible listener saves the closed state immediately.
 			ConsoleFrame.Visible = false
 		end)
+	end
+
+	-- ============================================================
+	-- CONSOLE VISIBILITY / STATE API
+	-- ============================================================
+
+	function ConsoleLogger:Open()
+		ConsoleFrame.Visible = true
+	end
+
+	function ConsoleLogger:Close()
+		ConsoleFrame.Visible = false
+	end
+
+	function ConsoleLogger:Toggle()
+		ConsoleFrame.Visible = not ConsoleFrame.Visible
+		return ConsoleFrame.Visible
+	end
+
+	function ConsoleLogger:IsOpen()
+		return ConsoleFrame.Visible
+	end
+
+	function ConsoleLogger:SaveState()
+		return SaveConsoleState()
 	end
 
 	-- ============================================================
@@ -1094,4 +1291,6 @@ return function(Console_2)
 	print(
 		"[Potassium Console] Initialized"
 	)
+
+	return ConsoleLogger
 end
