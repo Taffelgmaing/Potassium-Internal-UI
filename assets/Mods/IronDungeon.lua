@@ -39,6 +39,9 @@ local TranslationUtil = Framework.Modules.TranslationUtil
 local ForgeUtil = Framework.Modules.ForgeUtil
 local RarityTiers = Framework.Modules.RarityTiers
 
+local DataUtil = Framework.Modules.DataUtil
+local EquipmentUtil = Framework.Modules.EquipmentUtil
+
 local controller = Controller.new(
 	character,
 	ActionModules
@@ -60,13 +63,13 @@ function Attack(bool)
 				if v:IsA("ImageButton") and v:GetAttribute("OnCD") == false then
 					if v:GetAttribute("FullCharge") == true then
 						controller:PerformAction("SkillU")
-						task.wait(0.1)
+						task.wait(0.05)
 						return
 					end
 					controller:PerformAction("Skill1")
-					task.wait(0.1)
+					task.wait(0.05)
 					controller:PerformAction("Skill2")
-					task.wait(0.1)
+					task.wait(0.05)
 					controller:PerformAction("SkillAW")
 				end
 			end
@@ -394,7 +397,10 @@ function GetRarities()
 	return Rarities_Table
 end
 
-local Data_ores = Framework.Modules.DataUtil:GetPlayerData(game.Players.LocalPlayer).Ores
+local function GetRarityName(rarity)
+	return RarityTiers.Tiers[rarity].Name
+		or ("Unknown (" .. tostring(rarity) .. ")")
+end
 
 local function GetOresWithNames()
     local result = {}
@@ -456,6 +462,50 @@ local function GetCrystals()
 	return result
 end
 
+local function GetEquipment()
+	local result = {}
+
+	local playerData = DataUtil:GetPlayerData(game.Players.LocalPlayer)
+	local owned = playerData.Equipment.Owned
+
+	for uuid, itemData in pairs(owned) do
+		local def = EquipmentUtil:GetDef(itemData.ID)
+
+		if def then
+			local name = TranslationUtil:TranslateByKey(
+				"K_" .. string.upper(def.ID)
+			)
+
+			local rarity = EquipmentUtil:GetOreRarity(
+				itemData.MaxOre
+			)
+
+			RarityName = GetRarityName(rarity)
+
+			table.insert(result, {
+				UUID = uuid,
+				ID = itemData.ID,
+				Name = name,
+				Rarity = RarityName,
+				Type = itemData.Type,
+				Class = itemData.Class,
+				Level = EquipmentUtil:GetLvByInfo(
+					itemData,
+					def
+				),
+				Price = EquipmentUtil:GetPriceByInfo(
+					itemData,
+					def
+				),
+				Def = def,
+				Data = itemData,
+			})
+		end
+	end
+
+	return result
+end
+
 function GetCrystalsNames()
 	local GetCrystalsNames_Table = {}
 	for i,v in pairs(GetCrystals()) do
@@ -472,6 +522,14 @@ function GetOresNames()
 	return GetOresNames_Table
 end
 
+function GetEquipmentNames()
+	local GetEquipmentNames_Table = {}
+	for i,v in pairs(GetEquipment()) do
+		table.insert(GetEquipmentNames_Table, v.Name.." ("..v.Rarity..")")
+	end
+	return GetEquipmentNames_Table
+end
+
 local Crystals_Check = AutoSellTab:Checklist("Crystals", "Crystals_key", GetCrystalsNames(), function(t)
     Crystals = t
 end)
@@ -480,20 +538,12 @@ local Ores_Check = AutoSellTab:Checklist("Ores", "Ores_Key", GetOresNames(), fun
     Ores = t
 end)
 
-function GetEquipment()
-	local Equipment_Table = {}
-	for i,v in pairs(Framework.Modules.DataUtil:GetPlayerData(game.Players.LocalPlayer).Equipment.Owned) do
-		table.insert(Equipment_Table, v.ID)
-	end
-	return Equipment_Table
-end
-
-local Equipment_Check = AutoSellTab:Checklist("Equipment", "Equipment_key", GetEquipment(), function(t)
+local Equipment_Check = AutoSellTab:Checklist("Equipment Rarities", "Equipment_key", GetRarities(), function(t)
     Equipment = t
 end)
 
 AutoSellTab:Button("Refresh All", function()
-	Equipment_Check:Refresh(GetEquipment())
+	Equipment_Check:Refresh(GetRarities())
 	Ores_Check:Refresh(GetOresNames())
 	Crystals_Check:Refresh(GetCrystalsNames())
 end)
@@ -541,8 +591,8 @@ spawn(function()
 				end
 
 				if Equipment then
-					for i,v in pairs(Framework.Modules.DataUtil:GetPlayerData(game.Players.LocalPlayer).Equipment.Owned) do
-						if table.find(Equipment, v.ID) then
+					for i,v in pairs(GetEquipment()) do
+						if table.find(Equipment, v.Rarity) then
 							local ohString1 = "Sell"
 							local ohTable2 = {v.UUID}
 
