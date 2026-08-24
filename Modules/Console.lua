@@ -79,22 +79,6 @@ return function(Console_2, FileSystem)
 	-- FileSystem can either be passed into this module:
 	--     CreateConsole(ConsoleFrame, FileSystem)
 	-- or placed next to this ModuleScript as "FileSystem".
-	if not FileSystem and script and script.Parent then
-		local FileSystemModule = script.Parent:FindFirstChild("FileSystem")
-
-		if FileSystemModule and FileSystemModule:IsA("ModuleScript") then
-			local success, result = pcall(require, FileSystemModule)
-
-			if success then
-				FileSystem = result
-			end
-		end
-	end
-
-	assert(
-		FileSystem,
-		"[Potassium Console] FileSystem module was not provided"
-	)
 
 	local ConsoleStatePath
 
