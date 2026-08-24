@@ -394,39 +394,6 @@ function GetRarities()
 	return Rarities_Table
 end
 
-local Crystals_Check = AutoSellTab:Checklist("Crystal Rarity", "Crystals_key", GetRarities(), function(t)
-    Crystals = t
-end)
-
-local Ores_Check = AutoSellTab:Checklist("Ores Rarity", "Ores_Key", GetRarities(), function(t)
-    Ores = t
-end)
-
-function GetEquipment()
-	local Equipment_Table = {}
-	for i,v in pairs(Framework.Modules.DataUtil:GetPlayerData(game.Players.LocalPlayer).Equipment.Owned) do
-		table.insert(Equipment_Table, v.ID)
-	end
-	return Equipment_Table
-end
-
-local Equipment_Check = AutoSellTab:Checklist("Equipment", "Equipment_key", GetEquipment(), function(t)
-    Equipment = t
-end)
-
-AutoSellTab:Button("Refresh All", function()
-	Equipment_Check:Refresh(GetEquipment())
-	Ores_Check:Refresh(GetRarities())
-	Crystals_Check:Refresh(GetRarities())
-end)
-
-AutoSellTab:Toggle("Auto Sell", false, function(t)
-    AutoSell = t
-end)
-
-
-
-
 local Data_ores = Framework.Modules.DataUtil:GetPlayerData(game.Players.LocalPlayer).Ores
 
 local function GetOresWithNames()
@@ -489,6 +456,55 @@ local function GetCrystals()
 	return result
 end
 
+function GetCrystalsNames()
+	local GetCrystalsNames_Table = {}
+	for i,v in pairs(GetCrystals()) do
+		table.insert(GetCrystalsNames_Table, v.Name)
+	end
+	return GetCrystalsNames_Table
+end
+
+function GetOresNames()
+	local GetOresNames_Table = {}
+	for i,v in pairs(GetOresWithNames()) do
+		table.insert(GetOresNames_Table, v.Name)
+	end
+	return GetOresNames_Table
+end
+
+local Crystals_Check = AutoSellTab:Checklist("Crystals", "Crystals_key", GetCrystalsNames(), function(t)
+    Crystals = t
+end)
+
+local Ores_Check = AutoSellTab:Checklist("Ores", "Ores_Key", GetOresNames(), function(t)
+    Ores = t
+end)
+
+function GetEquipment()
+	local Equipment_Table = {}
+	for i,v in pairs(Framework.Modules.DataUtil:GetPlayerData(game.Players.LocalPlayer).Equipment.Owned) do
+		table.insert(Equipment_Table, v.ID)
+	end
+	return Equipment_Table
+end
+
+local Equipment_Check = AutoSellTab:Checklist("Equipment", "Equipment_key", GetEquipment(), function(t)
+    Equipment = t
+end)
+
+AutoSellTab:Button("Refresh All", function()
+	Equipment_Check:Refresh(GetEquipment())
+	Ores_Check:Refresh(GetOresNames())
+	Crystals_Check:Refresh(GetCrystalsNames())
+end)
+
+AutoSellTab:Toggle("Auto Sell", false, function(t)
+    AutoSell = t
+end)
+
+
+
+
 
 spawn(function()
 	while task.wait() do
@@ -497,7 +513,7 @@ spawn(function()
 				local FinalLoop = {}
 				if Crystals then
 					for i,v in pairs(GetCrystals()) do
-						if table.find(Crystals, v.Rarity) then
+						if table.find(Crystals, v.Name) then
 							FinalLoop[v.ID] = 1
 							-- print(v.ID, v.Name, v.Rarity)
 						end
@@ -513,7 +529,7 @@ spawn(function()
 				local OresLoop = {}
 				if Ores then
 					for i,v in pairs(GetOresWithNames()) do
-						if table.find(Ores, v.Rarity) then
+						if table.find(Ores, v.Name) then
 							OresLoop[v.ID] = 1
 						end
 					end
